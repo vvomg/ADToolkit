@@ -248,6 +248,32 @@ def deploy(args: argparse.Namespace) -> int:
     # Cleanup tmp
     run_remote(ssh, f"rm -rf {REMOTE_TMP}")
 
+    # Step 2c: ensure config-store dir exists and is owned by adtoolkit
+    CONFIG_STORE = "/opt/ivamail-config-store"
+    log(f"\n[2c/4] Ensuring {CONFIG_STORE}/ exists ...")
+    cs_cmd = (
+        f"echo '{sudo_p}' | sudo -S bash -c '"
+        f"mkdir -p {CONFIG_STORE} && "
+        f"chown adtoolkit:adtoolkit {CONFIG_STORE} && "
+        f"chmod 750 {CONFIG_STORE}'"
+    )
+    rc, _ = run_remote(ssh, cs_cmd, f"{CONFIG_STORE} ready")
+    if rc != 0:
+        error(f"Failed to prepare {CONFIG_STORE}")
+
+    # Init git repo if not yet initialised (idempotent)
+    git_init_cmd = (
+        f"echo '{sudo_p}' | sudo -S -u adtoolkit bash -c '"
+        f"cd {CONFIG_STORE} && "
+        f"git rev-parse --git-dir > /dev/null 2>&1 || ("
+        f"git init -q && "
+        f"git config user.email adtoolkit@local && "
+        f"git config user.name \"ADToolKit Ansible\" && "
+        f"touch .gitkeep && git add .gitkeep && "
+        f"git commit -q -m \"chore: init ivamail config-store\")'"
+    )
+    run_remote(ssh, git_init_cmd, "git repo initialised")
+
     # Step 3: pip install (as adtoolkit user via sudo)
     log(f"\n[3/4] Installing Python dependencies...")
     pip_cmd = (
