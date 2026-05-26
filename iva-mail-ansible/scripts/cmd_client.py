@@ -3,11 +3,18 @@
 CMD-клиент IVA Mail (порт 106) — CLI-обёртка для Ansible.
 
 Реализует подключение и аутентификацию по протоколу IVA Mail CMD (TCP, порт 106).
-Поддерживает действия: ping, cluster-config, request, install.
+Поддерживает действия: ping, cluster-config, request, install, module-read,
+module-update, domain-list, domain-read, domain-update, object-list, object-read,
+object-update, config-dump, config-restore, help-discover.
 
 Учётные данные читаются исключительно из переменных окружения:
   IVAMAIL_CMD_USER     — имя пользователя
   IVAMAIL_CMD_PASSWORD — пароль
+
+Протокол ответов IVA Mail CMD:
+  После строки "200 OK\r\n" сервер отправляет тело ответа (JSON) как
+  отдельные строки, не имеющие NNN-префикса. Тело заканчивается строкой,
+  содержащей только '}' или ']', либо по таймауту (_read_body).
 
 Использование (прямое и через ansible.builtin.script):
   python3 cmd_client.py --host 10.3.6.126 --action ping
@@ -18,6 +25,14 @@ CMD-клиент IVA Mail (порт 106) — CLI-обёртка для Ansible.
       --name "Org RU" --name-eng "Org EN"
   python3 cmd_client.py --host 10.3.6.126 --action install \\
       --license-file /tmp/license.txt
+  python3 cmd_client.py --host 10.3.6.126 --action module-read --module SMTP
+  python3 cmd_client.py --host 10.3.6.126 --action domain-list
+  python3 cmd_client.py --host 10.3.6.126 --action object-list --domain example.com
+  python3 cmd_client.py --host 10.3.6.126 --action object-read \\
+      --domain example.com --object admin
+  python3 cmd_client.py --host 10.3.6.126 --action help-discover
+  python3 cmd_client.py --host 10.3.6.126 --action config-dump \\
+      --output-dir /tmp/dump --include-objects
 
 Коды выхода:
   0 — успех
@@ -137,6 +152,63 @@ class CMDSession:
             raise CMDError("Connection closed by server")
         return data.decode("utf-8", errors="replace").rstrip("\r\n")
 
+    async def _read_body(self) -> List[str]:
+        """
+        Читать тело ответа после статусной строки "200 OK".
+
+        Протокол IVA Mail CMD: после "200 OK\\r\\n" сервер продолжает отправлять
+        JSON-тело как обычные строки без NNN-префикса. Тело заканчивается:
+          - строкой, содержащей ТОЛЬКО закрывающую скобку ('}' или ']')
+          - пустой строкой (пустой ответ)
+          - таймаутом чтения (тело прочитано частично, возвращаем накопленное)
+
+        :returns: список строк тела (без финального разделителя)
+        """
+        assert self._reader is not None
+        body_lines: List[str] = []
+        _short_timeout = min(self._timeout, 5.0)  # короткий таймаут для тела
+
+        while True:
+            try:
+                data = await asyncio.wait_for(
+                    self._reader.readline(), timeout=_short_timeout
+                )
+            except asyncio.TimeoutError:
+                # Таймаут — тело больше не идёт, возвращаем что есть
+                logger.debug("_read_body: timeout after %d lines", len(body_lines))
+                break
+
+            if not data:
+                # Соединение закрыто
+                logger.debug("_read_body: connection closed after %d lines", len(body_lines))
+                break
+
+            line = data.decode("utf-8", errors="replace").rstrip("\r\n")
+            logger.debug("<body> %s", line[:200])
+
+            stripped = line.strip()
+            if not stripped:
+                # Пустая строка — возможный разделитель, если тело уже есть
+                if body_lines:
+                    break
+                continue
+
+            body_lines.append(line)
+
+            # Проверяем, является ли это финальной строкой тела JSON
+            # Финал: строка, заканчивающаяся на '}' или ']' (возможно с пробелами)
+            if stripped in ("}", "]", "},", "],"):
+                break
+            # Однострочный JSON-ответ (начинается и заканчивается { } или [ ])
+            if (
+                (stripped.startswith("{") and stripped.endswith("}"))
+                or (stripped.startswith("[") and stripped.endswith("]"))
+                or stripped.startswith('"')
+            ):
+                break
+
+        return body_lines
+
     async def _writeline(self, line: str) -> None:
         """Отправить строку, завершённую CRLF."""
         assert self._writer is not None
@@ -251,12 +323,44 @@ class CMDSession:
         в ModuleUpdateConfig, если вызывающий код не позаботился об этом.
 
         :param cmd: строка команды (без завершающего CRLF)
-        :returns: (int code, list[str] body_lines)
+        :returns: (int code, list[str] status_lines)
         :raises CMDError: при ошибочном коде ответа
         """
         logger.debug("> %s", cmd[:120] + ("..." if len(cmd) > 120 else ""))
         await self._writeline(cmd)
         return await self._read_response()
+
+    async def send_command_with_body(self, cmd: str) -> Tuple[int, List[str]]:
+        """
+        Отправить команду, прочитать статусную строку, затем читать тело JSON-ответа.
+
+        Используется для команд, возвращающих JSON после "200 OK":
+          ModuleReadConfig, DOMAINSLIST, DOMAINREADCONFIG, OBJECTSLIST,
+          OBJECTREADCONFIG, HELP, и др.
+
+        Протокол:
+          → cmd\\r\\n
+          ← "200 OK\\r\\n"            (или NNN-multiline...NNN text)
+          ← {JSON body lines}
+          ← (пустая строка / timeout / '}')
+
+        :returns: (code, body_lines) — body_lines включает строки JSON-тела
+        :raises CMDError: при ошибочном коде ответа
+        """
+        logger.debug("> %s (with-body)", cmd[:120] + ("..." if len(cmd) > 120 else ""))
+        await self._writeline(cmd)
+        code, status_lines = await self._read_response()
+        logger.debug("send_command_with_body: status=%d, status_lines=%s", code, status_lines)
+
+        # Читаем тело только при успехе
+        body_lines = await self._read_body()
+
+        # Объединяем: если status_lines содержит что-то кроме "OK",
+        # пробуем его как первую часть JSON (редкий случай)
+        if body_lines:
+            return code, body_lines
+        # Тела нет — возвращаем status_lines (может содержать однострочный ответ)
+        return code, status_lines
 
     async def ping(self) -> bool:
         """
@@ -353,7 +457,7 @@ class CMDSession:
 
     async def module_read_config(self, module: str) -> dict:
         """ModuleReadConfig "Module" → parsed dict or {"_raw": lines}."""
-        code, lines = await self.send_command(f'ModuleReadConfig "{module}"')
+        code, lines = await self.send_command_with_body(f'ModuleReadConfig "{module}"')
         return _parse_cmd_json(lines)
 
     async def module_update_config_kv(self, module: str, kv_pairs: list) -> None:
@@ -366,12 +470,12 @@ class CMDSession:
 
     async def domain_list(self) -> list:
         """DOMAINSLIST → list of domain name strings."""
-        code, lines = await self.send_command("DOMAINSLIST")
+        code, lines = await self.send_command_with_body("DOMAINSLIST")
         return _parse_cmd_list(lines)
 
     async def domain_read_config(self, domain: str) -> dict:
         """DOMAINREADCONFIG "domain" → parsed dict or {"_raw": lines}."""
-        code, lines = await self.send_command(f'DOMAINREADCONFIG "{domain}"')
+        code, lines = await self.send_command_with_body(f'DOMAINREADCONFIG "{domain}"')
         return _parse_cmd_json(lines)
 
     async def domain_update_config_kv(self, domain: str, kv_pairs: list) -> None:
@@ -381,6 +485,73 @@ class CMDSession:
         logger.debug("Sending DOMAINUPDATECONFIG %s", domain)
         await self._writeline(cmd)
         await self._read_response()
+
+    async def object_list(self, domain: str, obj_type: Optional[str] = None) -> list:
+        """
+        OBJECTSLIST "domain" [filter] → list of object UIDs.
+
+        :param domain: имя домена IVA Mail
+        :param obj_type: опциональный тип объекта для фильтрации
+        :returns: список строк-UID объектов
+        """
+        if obj_type:
+            cmd = f'OBJECTSLIST "{domain}" "{obj_type}"'
+        else:
+            cmd = f'OBJECTSLIST "{domain}"'
+        code, lines = await self.send_command_with_body(cmd)
+        return _parse_cmd_list(lines)
+
+    async def object_read_config(self, domain: str, uid: str) -> dict:
+        """
+        OBJECTREADCONFIG "domain" "uid" → parsed dict or {"_raw": lines}.
+
+        :param domain: имя домена
+        :param uid: UID объекта (имя учётной записи, ресурса, и т.п.)
+        :returns: dict конфигурации объекта
+        """
+        code, lines = await self.send_command_with_body(f'OBJECTREADCONFIG "{domain}" "{uid}"')
+        return _parse_cmd_json(lines)
+
+    async def object_update_config_kv(self, domain: str, uid: str, kv_pairs: list) -> None:
+        """
+        OBJECTUPDATECONFIG "domain" "uid" [] [k,v,k,v,...].
+
+        :param domain: имя домена
+        :param uid: UID объекта
+        :param kv_pairs: плоский список чередующихся ключей и значений
+        """
+        kv_json = json.dumps(kv_pairs, separators=(",", ":"), ensure_ascii=False)
+        cmd = f'OBJECTUPDATECONFIG "{domain}" "{uid}" [] {kv_json}'
+        logger.debug("Sending OBJECTUPDATECONFIG %s@%s", uid, domain)
+        await self._writeline(cmd)
+        await self._read_response()
+
+    async def help_discover(self) -> list:
+        """
+        HELP → список доступных команд сервера.
+
+        Парсит ответ как JSON-массив строк или plain-text список команд.
+
+        :returns: список строк команд
+        :raises CMDError: при ошибке сервера
+        """
+        code, lines = await self.send_command_with_body("HELP")
+        # Пробуем как JSON-массив
+        text = "\n".join(lines).strip()
+        try:
+            result = json.loads(text)
+            if isinstance(result, list):
+                return [str(x) for x in result]
+        except (json.JSONDecodeError, ValueError):
+            pass
+        # Fallback: одна команда на строку
+        commands = []
+        for line in lines:
+            stripped = line.strip()
+            # Пропускаем числовые коды и пустые строки
+            if stripped and not stripped[0].isdigit():
+                commands.append(stripped)
+        return commands
 
     # ------------------------------------------------------------------
     # Вспомогательные методы
@@ -495,6 +666,18 @@ async def run(args: argparse.Namespace) -> None:
 
         elif args.action == "domain-update":
             await _action_domain_update(session, args)
+
+        elif args.action == "object-list":
+            await _action_object_list(session, args)
+
+        elif args.action == "object-read":
+            await _action_object_read(session, args)
+
+        elif args.action == "object-update":
+            await _action_object_update(session, args)
+
+        elif args.action == "help-discover":
+            await _action_help_discover(session)
 
         elif args.action == "config-dump":
             await _action_config_dump(session, args)
@@ -678,6 +861,56 @@ async def _action_domain_update(session: CMDSession, args: argparse.Namespace) -
     print(f"OK: domain {args.domain} updated")
 
 
+async def _action_object_list(session: CMDSession, args: argparse.Namespace) -> None:
+    """List objects in a domain and print JSON array to stdout."""
+    if not args.domain:
+        print("ERROR: --domain is required for object-list", file=sys.stderr)
+        sys.exit(2)
+    obj_type = getattr(args, "obj_type", None)
+    objects = await session.object_list(args.domain, obj_type)
+    print(json.dumps(objects, ensure_ascii=False, indent=2))
+
+
+async def _action_object_read(session: CMDSession, args: argparse.Namespace) -> None:
+    """Read object config and print JSON to stdout."""
+    if not args.domain:
+        print("ERROR: --domain is required for object-read", file=sys.stderr)
+        sys.exit(2)
+    if not args.object:
+        print("ERROR: --object is required for object-read", file=sys.stderr)
+        sys.exit(2)
+    config = await session.object_read_config(args.domain, args.object)
+    print(json.dumps(config, ensure_ascii=False, indent=2))
+
+
+async def _action_object_update(session: CMDSession, args: argparse.Namespace) -> None:
+    """Update object config from JSON file."""
+    if not args.domain:
+        print("ERROR: --domain is required for object-update", file=sys.stderr)
+        sys.exit(2)
+    if not args.object:
+        print("ERROR: --object is required for object-update", file=sys.stderr)
+        sys.exit(2)
+    if not args.config_file:
+        print("ERROR: --config-file is required for object-update", file=sys.stderr)
+        sys.exit(2)
+    with open(args.config_file, "r", encoding="utf-8") as fh:
+        dump = json.load(fh)
+    config = dump.get("config", dump) if isinstance(dump, dict) else {}
+    kv_pairs = _dict_to_kv_pairs(config)
+    if not kv_pairs:
+        print(f"WARNING: empty config in {args.config_file}, skipping", file=sys.stderr)
+        return
+    await session.object_update_config_kv(args.domain, args.object, kv_pairs)
+    print(f"OK: object {args.object}@{args.domain} updated")
+
+
+async def _action_help_discover(session: CMDSession) -> None:
+    """Send HELP and print available commands as JSON array to stdout."""
+    commands = await session.help_discover()
+    print(json.dumps(commands, ensure_ascii=False, indent=2))
+
+
 async def _action_config_dump(session: CMDSession, args: argparse.Namespace) -> None:
     """
     Dump all key module configs (and optionally domain configs) to JSON files.
@@ -722,6 +955,7 @@ async def _action_config_dump(session: CMDSession, args: argparse.Namespace) -> 
             print(f"WARNING: failed to dump module {module}: {exc}", file=sys.stderr)
 
     # --- Domain configs (optional, best-effort) ---
+    domains: list = []
     try:
         domains = await session.domain_list()
         for domain in domains:
@@ -744,6 +978,40 @@ async def _action_config_dump(session: CMDSession, args: argparse.Namespace) -> 
                 print(f"WARNING: failed to dump domain {domain}: {exc}", file=sys.stderr)
     except CMDError as exc:
         print(f"WARNING: DOMAINSLIST failed, skipping domain dump: {exc}", file=sys.stderr)
+
+    # --- Object configs (только при --include-objects) ---
+    include_objects: bool = getattr(args, "include_objects", False)
+    if include_objects and domains:
+        objects_dir = _os.path.join(output_dir, "objects")
+        _os.makedirs(objects_dir, exist_ok=True)
+        for domain in domains:
+            safe_domain = domain.replace("/", "_").replace(":", "_").replace("*", "_")
+            domain_obj_dir = _os.path.join(objects_dir, safe_domain)
+            try:
+                obj_uids = await session.object_list(domain)
+                for uid in obj_uids:
+                    try:
+                        obj_config = await session.object_read_config(domain, uid)
+                        obj_dump = {
+                            "type": "object",
+                            "domain": domain,
+                            "uid": uid,
+                            "host": args.host,
+                            "dumped_at": now,
+                            "config": obj_config,
+                        }
+                        _os.makedirs(domain_obj_dir, exist_ok=True)
+                        safe_uid = uid.replace("/", "_").replace(":", "_").replace("@", "_")
+                        obj_filepath = _os.path.join(domain_obj_dir, f"object_{safe_uid}.json")
+                        with open(obj_filepath, "w", encoding="utf-8") as fh:
+                            json.dump(obj_dump, fh, ensure_ascii=False, indent=2)
+                        results["ok"].append(f"object:{uid}@{domain}")
+                        logger.debug("Dumped object %s@%s → %s", uid, domain, obj_filepath)
+                    except CMDError as exc:
+                        results["failed"].append(f"object:{uid}@{domain}: {exc}")
+                        print(f"WARNING: failed to dump object {uid}@{domain}: {exc}", file=sys.stderr)
+            except CMDError as exc:
+                print(f"WARNING: OBJECTSLIST for {domain} failed, skipping: {exc}", file=sys.stderr)
 
     print(json.dumps(results, ensure_ascii=False))
 
@@ -880,12 +1148,15 @@ def build_parser() -> argparse.ArgumentParser:
             "ping", "cluster-config", "request", "install",
             "module-read", "module-update", "domain-list",
             "domain-read", "domain-update",
+            "object-list", "object-read", "object-update",
+            "help-discover",
             "config-dump", "config-restore",
         ],
         metavar="ACTION",
         help=(
             "Действие: ping | cluster-config | request | install | "
             "module-read | module-update | domain-list | domain-read | domain-update | "
+            "object-list | object-read | object-update | help-discover | "
             "config-dump | config-restore"
         ),
     )
@@ -962,13 +1233,24 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--domain",
         metavar="DOMAIN",
-        help="Имя домена IVA Mail (для domain-read/domain-update)",
+        help="Имя домена IVA Mail (для domain-read/domain-update/object-list/object-read/object-update)",
+    )
+    parser.add_argument(
+        "--object",
+        metavar="UID",
+        help="UID объекта домена (для object-read/object-update)",
+    )
+    parser.add_argument(
+        "--obj-type",
+        metavar="TYPE",
+        dest="obj_type",
+        help="Тип объекта для фильтрации в OBJECTSLIST (для object-list)",
     )
     parser.add_argument(
         "--config-file",
         metavar="PATH",
         dest="config_file",
-        help="Путь к JSON-файлу конфигурации (для module-update/domain-update)",
+        help="Путь к JSON-файлу конфигурации (для module-update/domain-update/object-update)",
     )
     parser.add_argument(
         "--output-dir",
@@ -990,6 +1272,13 @@ def build_parser() -> argparse.ArgumentParser:
             f"Список модулей для дампа через запятую "
             f"(по умолчанию: {DEFAULT_CONFIG_MODULES})"
         ),
+    )
+    parser.add_argument(
+        "--include-objects",
+        action="store_true",
+        dest="include_objects",
+        default=False,
+        help="Включить дамп объектов доменов (для config-dump; --include-objects)",
     )
 
     # Общие

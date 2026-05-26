@@ -3,36 +3,68 @@
 # 09-config-rollback.yml — Откат конфигурации IVA Mail к git-снимку
 # =============================================================================
 # Порядок плеев:
-#   Play 1 (localhost)  — динамический инвентарий из extra_vars
-#   Play 2 (monitoring) — git checkout тега, rsync на Ansible-контроллер
-#   Play 3 (backends)   — config-restore через CMD + опциональный restart
+#   Play 1 (localhost)  — динамический инвентарий + git checkout тега
+#   Play 2 (backends)   — [режим yaml_and_apply] config-restore через CMD + restart
+#   Play 3 (backends)   — [всегда] ping-проверка CMD-порта
 #
-# Использование:
-#   Откатить конфигурацию к снимку, сделанному плейбуком 07-config-dump.yml.
-#   Доступные теги: git -C /opt/ivamail-config-repo tag --list "config-*"
+# Режимы отката (rollback_mode):
+#   yaml_only      — только git checkout тега в config-store (без применения на ноды)
+#   yaml_and_apply — git checkout + CMD config-restore + опциональный restart
+#
+# Особенности:
+#   - Весь git-репозиторий хранится на Ansible-контроллере (не на monitoring)
+#   - Репозиторий: /opt/ivamail-config-store (config_store_dir)
+#   - git checkout не меняет HEAD — только файлы в рабочем дереве
 #
 # Переменные окружения: IVAMAIL_CMD_USER, IVAMAIL_CMD_PASSWORD
-# Extra vars: backend_hosts, monitoring_host, config_rollback_tag,
-#              config_restart_after_restore (bool, default: true)
-#
-# Ручное подтверждение (опционально):
-#   Вставьте ручное подтверждение в Workflow перед этим Job Template для подтверждения.
+# Extra vars:
+#   backend_hosts              — IP-адреса бэкендов через запятую
+#   config_rollback_tag        — git-тег для отката (ОБЯЗАТЕЛЬНО)
+#   rollback_mode              — "yaml_only" | "yaml_and_apply" (default: yaml_and_apply)
+#   config_restart_after_restore — перезапускать ivamail после восстановления (bool, default: true)
+#   config_store_dir           — путь к config-store (default: /opt/ivamail-config-store)
 #
 # Запуск напрямую:
 #   IVAMAIL_CMD_USER=admin IVAMAIL_CMD_PASSWORD=secret \
 #   ansible-playbook playbooks/09-config-rollback.yml \
-#     -e @tests/survey_vars.yml \
-#     -e config_rollback_tag=config-2024-01-15 \
-#     -e config_restart_after_restore=true
+#     -e backend_hosts=10.3.6.126,10.3.6.127 \
+#     -e config_rollback_tag=config-2024-01-15-120000 \
+#     -e rollback_mode=yaml_and_apply
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# PLAY 1: Динамический инвентарий из extra_vars
+# PLAY 1: Динамический инвентарий + git checkout тега на контроллере
 # -----------------------------------------------------------------------------
-- name: Построить динамический инвентарий из extra_vars
+- name: Инвентарий + откат git-снимка в config-store на Ansible-контроллере
   hosts: localhost
-  gather_facts: no
+  gather_facts: yes
+
+  vars:
+    _config_store_dir: "{{ config_store_dir | default('/opt/ivamail-config-store') }}"
+    _rollback_mode: "{{ rollback_mode | default('yaml_and_apply') }}"
+
   tasks:
+
+    - name: Проверить что config_rollback_tag задан
+      ansible.builtin.assert:
+        that:
+          - config_rollback_tag is defined
+          - config_rollback_tag | length > 0
+        fail_msg: >
+          Переменная config_rollback_tag не задана.
+          Укажите git-тег снимка для отката, например: -e config_rollback_tag=config-2024-01-15-120000.
+          Доступные теги: git -C {{ _config_store_dir }} tag --list "config-*"
+      tags:
+        - config_rollback
+
+    - name: Проверить что backend_hosts задан
+      ansible.builtin.assert:
+        that:
+          - backend_hosts is defined
+          - backend_hosts | length > 0
+        fail_msg: "Переменная backend_hosts не задана."
+      tags:
+        - config_rollback
 
     - name: Добавить бэкенды в инвентарий
       ansible.builtin.add_host:
@@ -45,114 +77,77 @@
       loop: >-
         {{ (backend_hosts | default('')).split(',')
            | select('match', '.+') | list }}
-      when:
-        - backend_hosts is defined
-        - backend_hosts | length > 0
       tags: always
-
-    - name: Добавить хост мониторинга в инвентарий
-      ansible.builtin.add_host:
-        name:         "{{ monitoring_host | trim }}"
-        groups:
-          - monitoring
-          - all_ivamail
-        ansible_host: "{{ monitoring_host | trim }}"
-        ansible_user: root
-      when:
-        - monitoring_host is defined
-        - monitoring_host | length > 0
-      tags: always
-
-# -----------------------------------------------------------------------------
-# PLAY 2: Git checkout тега на мониторинг-хосте + rsync на Ansible-контроллер
-# -----------------------------------------------------------------------------
-- name: Подготовить файлы отката конфигурации на Ansible-контроллере
-  hosts: monitoring
-  gather_facts: no
-
-  vars:
-    _restore_tmp_dir: "/tmp/ivamail-restore-{{ config_rollback_tag | default('latest') }}"
-
-  tasks:
-
-    - name: Проверить что config_rollback_tag задан
-      ansible.builtin.assert:
-        that:
-          - config_rollback_tag is defined
-          - config_rollback_tag | length > 0
-        fail_msg: >
-          Переменная config_rollback_tag не задана.
-          Укажите git-тег снимка для отката, например: config-2024-01-15.
-          Доступные теги: git -C /opt/ivamail-config-repo tag --list "config-*"
-      tags:
-        - config_rollback
 
     - name: Показать доступные теги конфигурации
       ansible.builtin.command:
-        cmd: git -C /opt/ivamail-config-repo tag --list "config-*" --sort=-creatordate
+        cmd: git -C "{{ _config_store_dir }}" tag --list "config-*" --sort=-creatordate
       register: _available_tags
       changed_when: false
       tags:
         - config_rollback
 
-    - name: Информация — доступные теги
+    - name: Информация — доступные теги конфигурации
       ansible.builtin.debug:
         msg: |
-          Доступные теги конфигурации:
+          Доступные теги:
           {{ _available_tags.stdout }}
-          Откат к тегу: {{ config_rollback_tag }}
+          Откат к тегу:    {{ config_rollback_tag }}
+          Режим отката:    {{ _rollback_mode }}
+          Config-store:    {{ _config_store_dir }}
       tags:
         - config_rollback
 
     - name: "Git checkout снимка конфигурации: {{ config_rollback_tag }}"
+      # git checkout <tag> -- . восстанавливает файлы рабочего дерева без смены HEAD
       ansible.builtin.command:
-        cmd: >-
-          git -C /opt/ivamail-config-repo
-          checkout {{ config_rollback_tag }} -- cmd-configs/
+        cmd: git -C "{{ _config_store_dir }}" checkout "{{ config_rollback_tag }}" -- .
       changed_when: true
       tags:
         - config_rollback
 
-    - name: Создать временный каталог на Ansible-контроллере для файлов отката
-      ansible.builtin.file:
-        path: "{{ _restore_tmp_dir }}"
-        state: directory
-        mode: "0700"
-      delegate_to: localhost
-      tags:
-        - config_rollback
-
-    # rsync тянет данные с monitoring_host на Ansible-контроллер (direction: pull)
-    - name: "Синхронизировать снимок конфигурации с monitoring на Ansible-контроллер"
-      ansible.builtin.command:
-        cmd: >-
-          rsync -av --delete
-          root@{{ ansible_host }}:/opt/ivamail-config-repo/cmd-configs/
-          {{ _restore_tmp_dir }}/
-      delegate_to: localhost
+    - name: Создать коммит "rollback" для фиксации отката в истории
+      ansible.builtin.shell: |
+        git -C "{{ _config_store_dir }}" add . && \
+        git -C "{{ _config_store_dir }}" diff --cached --quiet || \
+          git -C "{{ _config_store_dir }}" commit \
+            -m "rollback to {{ config_rollback_tag }} ({{ ansible_date_time.iso8601 }})"
       changed_when: true
+      ignore_errors: true   # OK если нет изменений (дамп идентичен)
       tags:
         - config_rollback
 
-    - name: Сохранить путь к tmp-каталогу в hostvars для Play 3
-      ansible.builtin.set_fact:
-        ivamail_restore_tmp_dir: "{{ _restore_tmp_dir }}"
+    - name: "Сводка: YAML откатан к {{ config_rollback_tag }}"
+      ansible.builtin.debug:
+        msg: |
+          config-store успешно откатан к тегу {{ config_rollback_tag }}.
+          {% if _rollback_mode == 'yaml_only' %}
+          Режим: yaml_only — применение на ноды не выполняется.
+          {% else %}
+          Режим: yaml_and_apply — следующий плей применит конфиг на ноды.
+          {% endif %}
       tags:
         - config_rollback
 
 # -----------------------------------------------------------------------------
-# PLAY 3: Восстановление конфигурации через CMD + опциональный рестарт
+# PLAY 2: [yaml_and_apply] Восстановление конфигурации через CMD + рестарт
 # -----------------------------------------------------------------------------
-- name: Восстановить конфигурацию IVA Mail и перезапустить сервис
+- name: Применить откаченную конфигурацию на бэкенды через CMD
   hosts: backends
   gather_facts: no
   serial: 1   # последовательно — один бэкенд за раз
 
   vars:
-    _restore_tmp_dir: >-
-      /tmp/ivamail-restore-{{ config_rollback_tag | default('latest') }}
+    _config_store_dir: "{{ config_store_dir | default('/opt/ivamail-config-store') }}"
+    _rollback_mode: "{{ rollback_mode | default('yaml_and_apply') }}"
 
   tasks:
+
+    - name: Пропустить Play если режим yaml_only
+      ansible.builtin.meta: end_play
+      when: _rollback_mode == 'yaml_only'
+      tags:
+        - config_rollback
 
     - name: "Восстановить конфигурацию через CMD ({{ inventory_hostname }})"
       ansible.builtin.script:
@@ -161,7 +156,7 @@
           --host {{ inventory_hostname }}
           --port {{ cmd_port | default(106) }}
           --action config-restore
-          --input-dir {{ _restore_tmp_dir }}/{{ inventory_hostname }}
+          --input-dir {{ _config_store_dir }}/{{ inventory_hostname }}
           --timeout {{ cmd_port_wait_timeout | default(30) }}
       environment:
         IVAMAIL_CMD_USER:     "{{ lookup('env', 'IVAMAIL_CMD_USER') }}"
@@ -173,11 +168,11 @@
       tags:
         - config_rollback
 
-    - name: Показать сводку восстановления ({{ inventory_hostname }})
+    - name: "Показать сводку восстановления ({{ inventory_hostname }})"
       ansible.builtin.debug:
         msg: >-
           Конфигурация восстановлена на {{ inventory_hostname }}
-          ← тег {{ config_rollback_tag }}:
+          <- тег {{ config_rollback_tag }}:
           {{ _restore_result.stdout_lines | default([]) | last | default('OK') }}
       tags:
         - config_rollback
@@ -190,22 +185,59 @@
       tags:
         - config_rollback
 
-    - name: Дождаться запуска CMD-порта 106 после перезапуска
+    - name: Дождаться запуска CMD-порта после перезапуска
       ansible.builtin.wait_for:
-        host: "{{ inventory_hostname }}"
-        port: "{{ cmd_port | default(106) }}"
+        host:    "{{ inventory_hostname }}"
+        port:    "{{ cmd_port | default(106) }}"
         timeout: "{{ cmd_port_wait_timeout | default(60) }}"
       when: config_restart_after_restore | default(true) | bool
       tags:
         - config_rollback
         - healthcheck
 
-  post_tasks:
-    - name: Удалить временный каталог отката с Ansible-контроллера (последний хост)
-      ansible.builtin.file:
-        path: "{{ _restore_tmp_dir }}"
-        state: absent
-      run_once: true
+# -----------------------------------------------------------------------------
+# PLAY 3: Ping-проверка CMD-порта на всех бэкендах (всегда выполняется)
+# -----------------------------------------------------------------------------
+- name: Проверить доступность CMD-порта на всех бэкендах
+  hosts: backends
+  gather_facts: no
+
+  tasks:
+
+    - name: "Ping CMD-порт {{ inventory_hostname }}:{{ cmd_port | default(106) }}"
+      ansible.builtin.script:
+        cmd: >-
+          scripts/cmd_client.py
+          --host {{ inventory_hostname }}
+          --port {{ cmd_port | default(106) }}
+          --action ping
+          --timeout {{ cmd_port_wait_timeout | default(30) }}
+      environment:
+        IVAMAIL_CMD_USER:     "{{ lookup('env', 'IVAMAIL_CMD_USER') }}"
+        IVAMAIL_CMD_PASSWORD: "{{ lookup('env', 'IVAMAIL_CMD_PASSWORD') }}"
       delegate_to: localhost
+      changed_when: false
+      no_log: true
+      register: _ping_result
+      tags:
+        - config_rollback
+        - healthcheck
+
+    - name: "CMD ping OK ({{ inventory_hostname }})"
+      ansible.builtin.debug:
+        msg: "CMD ping OK: {{ inventory_hostname }}"
+      when: _ping_result.rc == 0
+      tags:
+        - config_rollback
+        - healthcheck
+
+    - name: "Итоговая сводка отката"
+      ansible.builtin.debug:
+        msg: |
+          Откат конфигурации завершён.
+          Тег:   {{ config_rollback_tag }}
+          Режим: {{ rollback_mode | default('yaml_and_apply') }}
+          Хосты: {{ ansible_play_hosts | join(', ') }}
+      run_once: true
       tags:
         - config_rollback
