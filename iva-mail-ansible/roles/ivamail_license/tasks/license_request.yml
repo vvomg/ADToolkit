@@ -1,0 +1,81 @@
+---
+# tasks/license_request.yml
+# Генерируем запрос лицензии через CMD-протокол (run_once на be1).
+# cmd_client.py запускается на контроллере AWX (delegate_to: localhost),
+# соединяется с CMD-портом бэкенда по сети (10.3.6.0/24).
+# Лицензионный запрос сохраняется в файл на контроллере и выводится
+# в лог задания AWX для передачи вендору.
+
+- name: Вычислить количество бэкендов и фронтендов для лицензии
+  # Считаем хосты из CSV-строк backend_hosts / frontend_hosts.
+  # select('match', '.+') отфильтровывает пустые элементы при split.
+  ansible.builtin.set_fact:
+    _license_cluster_backends: >-
+      {{ (backend_hosts | default('')).split(',')
+         | select('match', '.+') | list | length }}
+    _license_cluster_frontends: >-
+      {{ (frontend_hosts | default('')).split(',')
+         | select('match', '.+') | list | length }}
+  run_once: true
+  tags:
+    - ivamail_license
+    - license_request
+
+- name: "Сгенерировать запрос лицензии IVA Mail (LicenseRequest на {{ inventory_hostname }})"
+  # Запускаем cmd_client.py на контроллере AWX.
+  # Контроллер (10.3.6.100) находится в одной подсети с бэкендами (10.3.6.0/24),
+  # поэтому он напрямую обращается к CMD-порту be1.
+  # Вывод stdout — тело запроса лицензии (-----BEGIN IVAMAIL LICENSE REQUEST-----).
+  ansible.builtin.script:
+    cmd: >-
+      scripts/cmd_client.py
+      --host {{ inventory_hostname }}
+      --port {{ cmd_port | default(106) }}
+      --action request
+      --backends {{ backend_hosts | default('') }}
+      --accounts {{ licensed_accounts }}
+      --resources {{ licensed_resources }}
+      --name "{{ licensee_name }}"
+      --name-eng "{{ licensee_name_eng }}"
+      --cluster-backends {{ _license_cluster_backends }}
+      --cluster-frontends {{ _license_cluster_frontends }}
+      --timeout {{ cmd_port_wait_timeout | default(60) }}
+  environment:
+    IVAMAIL_CMD_USER: "{{ lookup('env', 'IVAMAIL_CMD_USER') }}"
+    IVAMAIL_CMD_PASSWORD: "{{ lookup('env', 'IVAMAIL_CMD_PASSWORD') }}"
+  register: license_request_result
+  run_once: true
+  delegate_to: localhost
+  # no_log: false — вывод содержит только тело запроса лицензии, секретов нет
+  no_log: false
+  tags:
+    - ivamail_license
+    - license_request
+
+- name: Сохранить запрос лицензии в файл на контроллере AWX
+  # Файл сохраняется в ivamail_license_request_dir с суффиксом unix-timestamp
+  # для уникальности при повторных запусках.
+  ansible.builtin.copy:
+    content: "{{ license_request_result.stdout }}"
+    dest: "{{ ivamail_license_request_dir }}/license_request_{{ ansible_date_time.epoch }}.txt"
+    mode: '0600'
+  run_once: true
+  delegate_to: localhost
+  tags:
+    - ivamail_license
+    - license_request
+
+- name: Вывести запрос лицензии в лог задания AWX
+  # Администратор скопирует содержимое из вывода задания AWX и отправит вендору.
+  ansible.builtin.debug:
+    msg: |
+      =================================================================
+      ЗАПРОС ЛИЦЕНЗИИ IVA MAIL — ОТПРАВЬТЕ ВЕНДОРУ
+      Сохранён в: {{ ivamail_license_request_dir }}/license_request_{{ ansible_date_time.epoch }}.txt
+      =================================================================
+      {{ license_request_result.stdout }}
+      =================================================================
+  run_once: true
+  tags:
+    - ivamail_license
+    - license_request

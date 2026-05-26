@@ -1,0 +1,241 @@
+---
+# =============================================================================
+# 02-license-install-and-restart.yml — Установка лицензии и перезапуск бэкендов
+#                                       (Итерация 3)
+# =============================================================================
+# Порядок плеев:
+#   Play 1 (localhost)  — строит динамический инвентарий из Survey AWX
+#   Play 2 (backends)   — run_once на be1 — LicenseInstall через CMD
+#                         (license_file_path из Survey)
+#   Play 3 (backends)   — serial: 1 — последовательный перезапуск be1 → be2 → ...
+#                         с ожиданием CMD-порта и ping-проверкой после каждого узла
+#                         Остальные узлы подтягивают лицензию автоматически
+#                         при подключении к кластеру
+#   Play 4 (backends)   — финальная проверка статуса сервисов на всех узлах
+#
+# AWX Credentials: IVA Mail SSH Key + IVA Mail CMD
+# Survey: license_file_path — путь к файлу лицензии (.txt) на контроллере AWX
+# Запуск вне AWX:
+#   ansible-playbook playbooks/02-license-install-and-restart.yml \
+#     -e @tests/survey_vars.yml \
+#     -e license_file_path=/opt/ivamail/license.txt \
+#     -e IVAMAIL_CMD_USER=admin -e IVAMAIL_CMD_PASSWORD=admin
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# PLAY 1: Динамический инвентарий из Survey AWX
+# (дублируется из предыдущих плейбуков — каждый плейбук самодостаточен)
+# -----------------------------------------------------------------------------
+- name: Построить динамический инвентарий из Survey AWX
+  hosts: localhost
+  gather_facts: no
+  tasks:
+
+    # --- Backends ---
+    - name: Добавить бэкенды в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ item | trim }}"
+        groups:
+          - backends
+          - all_ivamail
+        ansible_host: "{{ item | trim }}"
+        ansible_user: root
+      loop: >-
+        {{ (backend_hosts | default('')).split(',')
+           | select('match', '.+') | list }}
+      when:
+        - backend_hosts is defined
+        - backend_hosts | length > 0
+      tags: always
+
+    # --- Frontends ---
+    - name: Добавить фронтенды в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ item | trim }}"
+        groups:
+          - frontends
+          - all_ivamail
+        ansible_host: "{{ item | trim }}"
+        ansible_user: root
+      loop: >-
+        {{ (frontend_hosts | default('')).split(',')
+           | select('match', '.+') | list }}
+      when:
+        - frontend_hosts is defined
+        - frontend_hosts | length > 0
+      tags: always
+
+    # --- HAProxy ---
+    - name: Добавить узлы HAProxy в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ item | trim }}"
+        groups:
+          - haproxy
+          - all_ivamail
+        ansible_host: "{{ item | trim }}"
+        ansible_user: root
+      loop: >-
+        {{ (haproxy_hosts | default('')).split(',')
+           | select('match', '.+') | list }}
+      when:
+        - haproxy_hosts is defined
+        - haproxy_hosts | length > 0
+      tags: always
+
+    # --- Storage (одиночный IP) ---
+    - name: Добавить хост хранилища в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ storage_host | trim }}"
+        groups:
+          - storage
+          - all_ivamail
+        ansible_host: "{{ storage_host | trim }}"
+        ansible_user: root
+      when:
+        - storage_host is defined
+        - storage_host | length > 0
+      tags: always
+
+    # --- Monitoring (одиночный IP) ---
+    - name: Добавить хост мониторинга в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ monitoring_host | trim }}"
+        groups:
+          - monitoring
+          - all_ivamail
+        ansible_host: "{{ monitoring_host | trim }}"
+        ansible_user: root
+      when:
+        - monitoring_host is defined
+        - monitoring_host | length > 0
+      tags: always
+
+# -----------------------------------------------------------------------------
+# PLAY 2: Установка лицензии IVA Mail на be1 через CMD-протокол (run_once)
+# -----------------------------------------------------------------------------
+# run_once: true — лицензия применяется ровно на одном узле (be1).
+# Роль ivamail_license с action=install:
+#   1. Проверяет наличие файла лицензии на контроллере (delegate_to: localhost)
+#   2. Запускает cmd_client.py --action install на контроллере,
+#      который по сети передаёт содержимое файла на CMD-порт be1
+#   3. be2..N получат лицензию автоматически в Play 3 при перезапуске сервиса
+#
+# gather_facts: yes — roles/ivamail_license может потребовать ansible_facts
+# для формирования контекста (hostname, OS).
+# -----------------------------------------------------------------------------
+- name: Установить лицензию IVA Mail на be1 через CMD-протокол
+  hosts: backends
+  gather_facts: yes
+  run_once: true
+
+  roles:
+    - role: ivamail_license
+      vars:
+        ivamail_license_action: install
+      tags: ivamail_license
+
+# -----------------------------------------------------------------------------
+# PLAY 3: Последовательный перезапуск бэкендов (serial: 1)
+# -----------------------------------------------------------------------------
+# Порядок важен:
+#   be1 перезапускается первым — он уже имеет лицензию и стартует в полном режиме.
+#   be2..N перезапускаются после — при установлении кластерного соединения
+#   они автоматически получают лицензию от be1.
+#
+# Каждый узел проходит цикл:
+#   stop → start → пауза → wait_for порта → CMD ping
+# Следующий узел начинает только после успешной проверки предыдущего.
+#
+# gather_facts: no — снижаем задержку, факты для перезапуска не нужны.
+# -----------------------------------------------------------------------------
+- name: Последовательный перезапуск бэкендов с --backend (serial: 1)
+  hosts: backends
+  gather_facts: no
+  serial: 1   # по одному: be1 → be2 → ... Лицензия подтягивается автоматически
+
+  tasks:
+    - name: Остановить ivamail.service на {{ inventory_hostname }}
+      ansible.builtin.service:
+        name:  ivamail
+        state: stopped
+      tags:
+        - ivamail_license
+        - restart
+
+    - name: Запустить ivamail.service на {{ inventory_hostname }} (режим --backend)
+      ansible.builtin.service:
+        name:  ivamail
+        state: started
+      tags:
+        - ivamail_license
+        - restart
+
+    # Задержка перед проверкой — даём сервису время инициализироваться.
+    # CMD-порт поднимается не мгновенно: сервис загружает конфигурацию,
+    # устанавливает кластерные соединения и только затем открывает порт.
+    - name: Пауза {{ node_startup_delay | default(10) }} сек. для стабилизации сервиса
+      ansible.builtin.pause:
+        seconds: "{{ node_startup_delay | default(10) }}"
+      tags:
+        - ivamail_license
+        - restart
+
+    - name: Ждать готовности CMD-порта {{ cmd_port | default(106) }} на {{ inventory_hostname }}
+      ansible.builtin.wait_for:
+        host:    "{{ inventory_hostname }}"
+        port:    "{{ cmd_port | default(106) }}"
+        timeout: "{{ cmd_port_wait_timeout | default(60) }}"
+        state:   started
+      delegate_to: localhost
+      tags:
+        - ivamail_license
+        - restart
+        - healthcheck
+
+    - name: Проверить доступность CMD (ping) на {{ inventory_hostname }}
+      # cmd_client.py запускается на контроллере AWX (delegate_to: localhost).
+      # --action ping проверяет готовность CMD-протокола после перезапуска.
+      # Учётные данные CMD инжектируются через AWX Credential "IVA Mail CMD".
+      ansible.builtin.script:
+        cmd: >-
+          scripts/cmd_client.py
+          --host {{ inventory_hostname }}
+          --port {{ cmd_port | default(106) }}
+          --action ping
+          --timeout {{ cmd_port_wait_timeout | default(60) }}
+      environment:
+        IVAMAIL_CMD_USER:     "{{ lookup('env', 'IVAMAIL_CMD_USER') }}"
+        IVAMAIL_CMD_PASSWORD: "{{ lookup('env', 'IVAMAIL_CMD_PASSWORD') }}"
+      delegate_to: localhost
+      tags:
+        - ivamail_license
+        - restart
+        - healthcheck
+
+# -----------------------------------------------------------------------------
+# PLAY 4: Итоговый статус кластера бэкендов
+# -----------------------------------------------------------------------------
+# Параллельная проверка всех бэкендов после завершения перезапуска.
+# service_facts собирает состояние всех systemd-сервисов с каждого узла.
+# Вывод позволяет администратору убедиться что все узлы в состоянии running
+# до перехода к следующему шагу Workflow (установка фронтендов).
+# -----------------------------------------------------------------------------
+- name: Итоговый статус кластера бэкендов
+  hosts: backends
+  gather_facts: no
+
+  tasks:
+    - name: Проверить статус ivamail.service на всех бэкендах
+      ansible.builtin.service_facts:
+      tags:
+        - ivamail_license
+        - healthcheck
+
+    - name: Вывести статус сервисов
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }}: ivamail =
+          {{ ansible_facts.services['ivamail.service'].state | default('unknown') }}
+      tags:
+        - ivamail_license
+        - healthcheck

@@ -1,0 +1,221 @@
+---
+# =============================================================================
+# 05-monitoring.yml — Мониторинг кластера IVA Mail (Итерация 5)
+# =============================================================================
+# Порядок плеев:
+#   Play 1 (localhost)    — динамический инвентарий из Survey AWX
+#   Play 2 (all_ivamail)  — node_exporter на всех узлах кластера (параллельно)
+#   Play 3 (all_ivamail)  — rsyslog: пересылка логов IVA Mail в Graylog (параллельно)
+#   Play 4 (monitoring)   — полный стек мониторинга: Prometheus + Grafana + Graylog
+#
+# AWX Credentials: IVA Mail SSH Key
+# Survey vars: backend_hosts, frontend_hosts, haproxy_hosts, storage_host, monitoring_host
+#
+# Запуск вне AWX:
+#   ansible-playbook playbooks/05-monitoring.yml \
+#     -e @tests/survey_vars.yml
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# PLAY 1: Динамический инвентарий из Survey AWX
+# (дублируется из предыдущих плейбуков — каждый плейбук самодостаточен)
+# -----------------------------------------------------------------------------
+- name: Построить динамический инвентарий из Survey AWX
+  hosts: localhost
+  gather_facts: no
+  tasks:
+
+    # --- Backends ---
+    - name: Добавить бэкенды в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ item | trim }}"
+        groups:
+          - backends
+          - all_ivamail
+        ansible_host: "{{ item | trim }}"
+        ansible_user: root
+      loop: >-
+        {{ (backend_hosts | default('')).split(',')
+           | select('match', '.+') | list }}
+      when:
+        - backend_hosts is defined
+        - backend_hosts | length > 0
+      tags: always
+
+    # --- Frontends ---
+    - name: Добавить фронтенды в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ item | trim }}"
+        groups:
+          - frontends
+          - all_ivamail
+        ansible_host: "{{ item | trim }}"
+        ansible_user: root
+      loop: >-
+        {{ (frontend_hosts | default('')).split(',')
+           | select('match', '.+') | list }}
+      when:
+        - frontend_hosts is defined
+        - frontend_hosts | length > 0
+      tags: always
+
+    # --- HAProxy ---
+    - name: Добавить узлы HAProxy в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ item | trim }}"
+        groups:
+          - haproxy
+          - all_ivamail
+        ansible_host: "{{ item | trim }}"
+        ansible_user: root
+      loop: >-
+        {{ (haproxy_hosts | default('')).split(',')
+           | select('match', '.+') | list }}
+      when:
+        - haproxy_hosts is defined
+        - haproxy_hosts | length > 0
+      tags: always
+
+    # --- Storage (одиночный IP) ---
+    - name: Добавить хост хранилища в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ storage_host | trim }}"
+        groups:
+          - storage
+          - all_ivamail
+        ansible_host: "{{ storage_host | trim }}"
+        ansible_user: root
+      when:
+        - storage_host is defined
+        - storage_host | length > 0
+      tags: always
+
+    # --- Monitoring (одиночный IP) ---
+    - name: Добавить хост мониторинга в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ monitoring_host | trim }}"
+        groups:
+          - monitoring
+          - all_ivamail
+        ansible_host: "{{ monitoring_host | trim }}"
+        ansible_user: root
+      when:
+        - monitoring_host is defined
+        - monitoring_host | length > 0
+      tags: always
+
+# -----------------------------------------------------------------------------
+# PLAY 2: Установка node_exporter на все узлы кластера (параллельно)
+# -----------------------------------------------------------------------------
+# node_exporter устанавливается на каждый узел кластера, чтобы Prometheus
+# мог собирать системные метрики (CPU, RAM, диск, сеть).
+# Параллельный режим намеренный: узлы независимы, гонок нет.
+# -----------------------------------------------------------------------------
+- name: Установить node_exporter на все узлы кластера IVA Mail
+  hosts: all_ivamail
+  gather_facts: yes
+
+  roles:
+    - role: node_exporter
+      tags:
+        - node_exporter
+        - monitoring
+
+# -----------------------------------------------------------------------------
+# PLAY 3: Настройка rsyslog для пересылки логов IVA Mail в Graylog (параллельно)
+# -----------------------------------------------------------------------------
+# На каждый узел кластера добавляется правило rsyslog, которое перенаправляет
+# записи с programname='ivamail' на хост мониторинга (порт 5141, UDP).
+# Одиночный @ = UDP. Graylog принимает Syslog UDP на непривилегированном порту.
+# Директива & stop исключает дублирование в локальных логах.
+# -----------------------------------------------------------------------------
+- name: Настроить rsyslog для пересылки логов IVA Mail в Graylog
+  hosts: all_ivamail
+  gather_facts: no
+
+  tasks:
+    - name: Создать конфигурацию rsyslog для пересылки логов IVA Mail в Graylog
+      # Одиночный @ = UDP. Двойной @@ = TCP.
+      # Graylog принимает syslog UDP на порту 5141 (непривилегированный порт).
+      # Фильтр по programname='ivamail' отправляет только логи сервиса IVA Mail.
+      # Директива & stop предотвращает дублирование записей в локальных логах.
+      ansible.builtin.copy:
+        dest: /etc/rsyslog.d/90-ivamail-graylog.conf
+        content: |
+          # Пересылка логов IVA Mail в Graylog (UDP syslog, порт {{ graylog_syslog_port | default(5141) }})
+          # Сгенерировано Ansible — не редактировать вручную
+          if $programname == 'ivamail' then @{{ monitoring_host | default('') }}:{{ graylog_syslog_port | default(5141) }}
+          & stop
+        owner: root
+        group: root
+        mode: '0644'
+      notify: restart rsyslog
+      when:
+        - monitoring_host is defined
+        - monitoring_host | length > 0
+      tags:
+        - monitoring
+        - rsyslog
+
+    - name: Убедиться что rsyslog запущен и включён в автозапуск
+      ansible.builtin.service:
+        name: rsyslog
+        enabled: yes
+        state: started
+      tags:
+        - monitoring
+        - rsyslog
+
+  handlers:
+    - name: restart rsyslog
+      ansible.builtin.service:
+        name: rsyslog
+        state: restarted
+
+# -----------------------------------------------------------------------------
+# PLAY 4: Установка полного стека мониторинга на узел мониторинга
+# -----------------------------------------------------------------------------
+# Роль monitoring разворачивает Prometheus, Grafana и Graylog.
+# После установки выполняются healthcheck-проверки доступности портов
+# с контроллера: Prometheus (9090), Grafana (3000), Graylog (9000).
+# Graylog требует больший таймаут (120 сек) — JVM стартует дольше.
+# -----------------------------------------------------------------------------
+- name: Установить стек мониторинга (Prometheus + Grafana + Graylog) на узел мониторинга
+  hosts: monitoring
+  gather_facts: yes
+
+  roles:
+    - role: monitoring
+      tags:
+        - monitoring
+
+  post_tasks:
+    - name: Проверить доступность Prometheus (порт 9090) с контроллера
+      ansible.builtin.wait_for:
+        host:    "{{ inventory_hostname }}"
+        port:    9090
+        timeout: 30
+      delegate_to: localhost
+      tags:
+        - monitoring
+        - healthcheck
+
+    - name: Проверить доступность Grafana (порт 3000) с контроллера
+      ansible.builtin.wait_for:
+        host:    "{{ inventory_hostname }}"
+        port:    3000
+        timeout: 60
+      delegate_to: localhost
+      tags:
+        - monitoring
+        - healthcheck
+
+    - name: Проверить доступность Graylog (порт 9000) с контроллера
+      ansible.builtin.wait_for:
+        host:    "{{ inventory_hostname }}"
+        port:    9000
+        timeout: 120
+      delegate_to: localhost
+      tags:
+        - monitoring
+        - healthcheck

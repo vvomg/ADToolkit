@@ -1,0 +1,183 @@
+---
+# =============================================================================
+# 01-postgres-nfs.yml — Развёртывание PostgreSQL и NFS
+# =============================================================================
+# Порядок плеев:
+#   Play 1 (localhost)  — строит динамический инвентарий из Survey AWX
+#   Play 2 (storage)    — PostgreSQL + NFS сервер на узле хранилища
+#   Play 3 (backends)   — монтирование NFS на каждом бэкенде (serial: 1)
+#
+# Секреты PostgreSQL инжектируются AWX Credential как env-переменные:
+#   PG_ADMIN_USER, PG_ADMIN_PASSWORD
+#   IVAMAIL_CMD_USER, IVAMAIL_CMD_PASSWORD
+#
+# Запуск вне AWX:
+#   ansible-playbook playbooks/01-postgres-nfs.yml \
+#     -e @tests/survey_vars.yml \
+#     -e PG_ADMIN_USER=admin -e PG_ADMIN_PASSWORD=changeme
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# PLAY 1: Динамический инвентарь из Survey AWX
+# (дублируется из 00-bootstrap.yml — каждый плейбук самодостаточен)
+# -----------------------------------------------------------------------------
+- name: Построить динамический инвентарь из Survey AWX
+  hosts: localhost
+  gather_facts: no
+  tasks:
+
+    # --- Backends ---
+    - name: Добавить бэкенды в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ item | trim }}"
+        groups:
+          - backends
+          - all_ivamail
+        ansible_host: "{{ item | trim }}"
+        ansible_user: root
+      loop: >-
+        {{ (backend_hosts | default('')).split(',')
+           | select('match', '.+') | list }}
+      when:
+        - backend_hosts is defined
+        - backend_hosts | length > 0
+      tags: always
+
+    # --- Frontends ---
+    - name: Добавить фронтенды в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ item | trim }}"
+        groups:
+          - frontends
+          - all_ivamail
+        ansible_host: "{{ item | trim }}"
+        ansible_user: root
+      loop: >-
+        {{ (frontend_hosts | default('')).split(',')
+           | select('match', '.+') | list }}
+      when:
+        - frontend_hosts is defined
+        - frontend_hosts | length > 0
+      tags: always
+
+    # --- HAProxy ---
+    - name: Добавить узлы HAProxy в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ item | trim }}"
+        groups:
+          - haproxy
+          - all_ivamail
+        ansible_host: "{{ item | trim }}"
+        ansible_user: root
+      loop: >-
+        {{ (haproxy_hosts | default('')).split(',')
+           | select('match', '.+') | list }}
+      when:
+        - haproxy_hosts is defined
+        - haproxy_hosts | length > 0
+      tags: always
+
+    # --- Storage (одиночный IP) ---
+    - name: Добавить хост хранилища в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ storage_host | trim }}"
+        groups:
+          - storage
+          - all_ivamail
+        ansible_host: "{{ storage_host | trim }}"
+        ansible_user: root
+      when:
+        - storage_host is defined
+        - storage_host | length > 0
+      tags: always
+
+    # --- Monitoring (одиночный IP) ---
+    - name: Добавить хост мониторинга в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ monitoring_host | trim }}"
+        groups:
+          - monitoring
+          - all_ivamail
+        ansible_host: "{{ monitoring_host | trim }}"
+        ansible_user: root
+      when:
+        - monitoring_host is defined
+        - monitoring_host | length > 0
+      tags: always
+
+# -----------------------------------------------------------------------------
+# PLAY 2: PostgreSQL + NFS сервер на узле хранилища
+# -----------------------------------------------------------------------------
+# Роль postgres: создаёт кластер БД, пользователей, схему IVA Mail.
+#   Пароли читает из ansible_env.PG_ADMIN_USER / PG_ADMIN_PASSWORD.
+# Роль nfs_server: экспортирует каталог для бэкендов через NFS v3.
+# -----------------------------------------------------------------------------
+- name: Настроить PostgreSQL и NFS сервер на узле хранилища
+  hosts: storage
+  gather_facts: yes
+
+  pre_tasks:
+    # Формируем список бэкендов как [{ip: "x.x.x.x"}, ...] для шаблонов
+    # pg_hba.conf и exports. Используем значение Survey или дефолт из топологии.
+    - name: Подготовить список бэкендов для шаблонов ролей
+      ansible.builtin.set_fact:
+        postgres_backends: >-
+          {{ (backend_hosts | default('10.3.6.126,10.3.6.127')).split(',') | map('trim') | map('community.general.dict_kv', 'ip') | list }}
+        nfs_backends: >-
+          {{ (backend_hosts | default('10.3.6.126,10.3.6.127')).split(',') | map('trim') | map('community.general.dict_kv', 'ip') | list }}
+      tags: always
+
+  roles:
+    - role: postgres
+      tags: postgres
+    - role: nfs_server
+      tags: nfs
+
+  post_tasks:
+    # Убеждаемся, что PostgreSQL принимает подключения до перехода к Play 3
+    - name: Проверить доступность PostgreSQL (порт {{ postgres_port | default(5432) }})
+      ansible.builtin.wait_for:
+        host:    "{{ inventory_hostname }}"
+        port:    "{{ postgres_port | default(5432) }}"
+        timeout: "{{ pg_wait_timeout | default(60) }}"
+      delegate_to: localhost
+      tags:
+        - postgres
+        - healthcheck
+
+# -----------------------------------------------------------------------------
+# PLAY 3: Монтирование NFS на бэкендах
+# -----------------------------------------------------------------------------
+# serial: 1 — поочерёдное монтирование, чтобы избежать гонок при первом
+# экспорте (NFS сервер может не успеть обработать параллельные запросы).
+# -----------------------------------------------------------------------------
+- name: Смонтировать NFS на бэкендах
+  hosts: backends
+  gather_facts: yes
+  serial: 1
+
+  roles:
+    - role: nfs_client
+      tags: nfs
+
+  post_tasks:
+    # mountpoint -q возвращает 0, только если путь является точкой монтирования
+    - name: Проверить что NFS смонтирован на {{ inventory_hostname }}
+      ansible.builtin.command: "mountpoint -q {{ nfs_mount_point }}"
+      register:     nfs_check
+      changed_when: false
+      tags:
+        - nfs
+        - healthcheck
+
+    - name: Убедиться что NFS монтирование прошло успешно
+      ansible.builtin.assert:
+        that:     "nfs_check.rc == 0"
+        fail_msg: >-
+          NFS не смонтирован на {{ inventory_hostname }}
+          по пути {{ nfs_mount_point }}.
+          Проверьте экспорт на {{ nfs_server_ip }} и журнал /var/log/messages.
+        success_msg: "NFS смонтирован на {{ inventory_hostname }} ({{ nfs_mount_point }})"
+      tags:
+        - nfs
+        - healthcheck

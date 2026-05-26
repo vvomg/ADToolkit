@@ -1,0 +1,211 @@
+---
+# =============================================================================
+# 09-config-rollback.yml — Откат конфигурации IVA Mail к git-снимку
+# =============================================================================
+# Порядок плеев:
+#   Play 1 (localhost)  — динамический инвентарий из Survey AWX
+#   Play 2 (monitoring) — git checkout тега, rsync на AWX контроллер
+#   Play 3 (backends)   — config-restore через CMD + опциональный restart
+#
+# Использование:
+#   Откатить конфигурацию к снимку, сделанному плейбуком 07-config-dump.yml.
+#   Доступные теги: git -C /opt/ivamail-config-repo tag --list "config-*"
+#
+# AWX Credentials: IVA Mail SSH Key + IVA Mail CMD
+# Survey vars: backend_hosts, monitoring_host, config_rollback_tag,
+#              config_restart_after_restore (bool, default: true)
+#
+# AWX Approval Node (опционально):
+#   Вставьте Approval Node в Workflow перед этим Job Template для подтверждения.
+#
+# Запуск вне AWX:
+#   IVAMAIL_CMD_USER=admin IVAMAIL_CMD_PASSWORD=secret \
+#   ansible-playbook playbooks/09-config-rollback.yml \
+#     -e @tests/survey_vars.yml \
+#     -e config_rollback_tag=config-2024-01-15 \
+#     -e config_restart_after_restore=true
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# PLAY 1: Динамический инвентарий из Survey AWX
+# -----------------------------------------------------------------------------
+- name: Построить динамический инвентарий из Survey AWX
+  hosts: localhost
+  gather_facts: no
+  tasks:
+
+    - name: Добавить бэкенды в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ item | trim }}"
+        groups:
+          - backends
+          - all_ivamail
+        ansible_host: "{{ item | trim }}"
+        ansible_user: root
+      loop: >-
+        {{ (backend_hosts | default('')).split(',')
+           | select('match', '.+') | list }}
+      when:
+        - backend_hosts is defined
+        - backend_hosts | length > 0
+      tags: always
+
+    - name: Добавить хост мониторинга в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ monitoring_host | trim }}"
+        groups:
+          - monitoring
+          - all_ivamail
+        ansible_host: "{{ monitoring_host | trim }}"
+        ansible_user: root
+      when:
+        - monitoring_host is defined
+        - monitoring_host | length > 0
+      tags: always
+
+# -----------------------------------------------------------------------------
+# PLAY 2: Git checkout тега на мониторинг-хосте + rsync на AWX контроллер
+# -----------------------------------------------------------------------------
+- name: Подготовить файлы отката конфигурации на AWX контроллере
+  hosts: monitoring
+  gather_facts: no
+
+  vars:
+    _restore_tmp_dir: "/tmp/ivamail-restore-{{ config_rollback_tag | default('latest') }}"
+
+  tasks:
+
+    - name: Проверить что config_rollback_tag задан
+      ansible.builtin.assert:
+        that:
+          - config_rollback_tag is defined
+          - config_rollback_tag | length > 0
+        fail_msg: >
+          Переменная config_rollback_tag не задана.
+          Укажите git-тег снимка для отката, например: config-2024-01-15.
+          Доступные теги: git -C /opt/ivamail-config-repo tag --list "config-*"
+      tags:
+        - config_rollback
+
+    - name: Показать доступные теги конфигурации
+      ansible.builtin.command:
+        cmd: git -C /opt/ivamail-config-repo tag --list "config-*" --sort=-creatordate
+      register: _available_tags
+      changed_when: false
+      tags:
+        - config_rollback
+
+    - name: Информация — доступные теги
+      ansible.builtin.debug:
+        msg: |
+          Доступные теги конфигурации:
+          {{ _available_tags.stdout }}
+          Откат к тегу: {{ config_rollback_tag }}
+      tags:
+        - config_rollback
+
+    - name: "Git checkout снимка конфигурации: {{ config_rollback_tag }}"
+      ansible.builtin.command:
+        cmd: >-
+          git -C /opt/ivamail-config-repo
+          checkout {{ config_rollback_tag }} -- cmd-configs/
+      changed_when: true
+      tags:
+        - config_rollback
+
+    - name: Создать временный каталог на AWX контроллере для файлов отката
+      ansible.builtin.file:
+        path: "{{ _restore_tmp_dir }}"
+        state: directory
+        mode: "0700"
+      delegate_to: localhost
+      tags:
+        - config_rollback
+
+    # rsync тянет данные с monitoring_host на AWX контроллер (direction: pull)
+    - name: "Синхронизировать снимок конфигурации с monitoring на AWX контроллер"
+      ansible.builtin.command:
+        cmd: >-
+          rsync -av --delete
+          root@{{ ansible_host }}:/opt/ivamail-config-repo/cmd-configs/
+          {{ _restore_tmp_dir }}/
+      delegate_to: localhost
+      changed_when: true
+      tags:
+        - config_rollback
+
+    - name: Сохранить путь к tmp-каталогу в hostvars для Play 3
+      ansible.builtin.set_fact:
+        ivamail_restore_tmp_dir: "{{ _restore_tmp_dir }}"
+      tags:
+        - config_rollback
+
+# -----------------------------------------------------------------------------
+# PLAY 3: Восстановление конфигурации через CMD + опциональный рестарт
+# -----------------------------------------------------------------------------
+- name: Восстановить конфигурацию IVA Mail и перезапустить сервис
+  hosts: backends
+  gather_facts: no
+  serial: 1   # последовательно — один бэкенд за раз
+
+  vars:
+    _restore_tmp_dir: >-
+      /tmp/ivamail-restore-{{ config_rollback_tag | default('latest') }}
+
+  tasks:
+
+    - name: "Восстановить конфигурацию через CMD ({{ inventory_hostname }})"
+      ansible.builtin.script:
+        cmd: >-
+          scripts/cmd_client.py
+          --host {{ inventory_hostname }}
+          --port {{ cmd_port | default(106) }}
+          --action config-restore
+          --input-dir {{ _restore_tmp_dir }}/{{ inventory_hostname }}
+          --timeout {{ cmd_port_wait_timeout | default(30) }}
+      environment:
+        IVAMAIL_CMD_USER:     "{{ lookup('env', 'IVAMAIL_CMD_USER') }}"
+        IVAMAIL_CMD_PASSWORD: "{{ lookup('env', 'IVAMAIL_CMD_PASSWORD') }}"
+      delegate_to: localhost
+      changed_when: true
+      no_log: true
+      register: _restore_result
+      tags:
+        - config_rollback
+
+    - name: Показать сводку восстановления ({{ inventory_hostname }})
+      ansible.builtin.debug:
+        msg: >-
+          Конфигурация восстановлена на {{ inventory_hostname }}
+          ← тег {{ config_rollback_tag }}:
+          {{ _restore_result.stdout_lines | default([]) | last | default('OK') }}
+      tags:
+        - config_rollback
+
+    - name: "Перезапустить ivamail.service на {{ inventory_hostname }}"
+      ansible.builtin.service:
+        name: "{{ ivamail_service_name | default('ivamail') }}"
+        state: restarted
+      when: config_restart_after_restore | default(true) | bool
+      tags:
+        - config_rollback
+
+    - name: Дождаться запуска CMD-порта 106 после перезапуска
+      ansible.builtin.wait_for:
+        host: "{{ inventory_hostname }}"
+        port: "{{ cmd_port | default(106) }}"
+        timeout: "{{ cmd_port_wait_timeout | default(60) }}"
+      when: config_restart_after_restore | default(true) | bool
+      tags:
+        - config_rollback
+        - healthcheck
+
+  post_tasks:
+    - name: Удалить временный каталог отката с AWX контроллера (последний хост)
+      ansible.builtin.file:
+        path: "{{ _restore_tmp_dir }}"
+        state: absent
+      run_once: true
+      delegate_to: localhost
+      tags:
+        - config_rollback

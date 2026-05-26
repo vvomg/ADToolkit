@@ -1,0 +1,202 @@
+---
+# =============================================================================
+# 06-backup-config.yml — Резервное копирование и версионирование конфигураций (Итерация 6)
+# =============================================================================
+# Порядок плеев:
+#   Play 1 (localhost)  — динамический инвентарий из Survey AWX
+#   Play 2 (storage)    — pg_dump cron + rsync NFS cron на узле хранилища
+#   Play 3 (monitoring) — git-репозиторий конфигураций на узле мониторинга
+#
+# AWX Credentials: IVA Mail SSH Key + PostgreSQL Admin (PG_ADMIN_PASSWORD)
+# Survey vars: storage_host, monitoring_host, backend_hosts, ...
+#
+# Запуск вне AWX:
+#   ansible-playbook playbooks/06-backup-config.yml \
+#     -e @tests/survey_vars.yml \
+#     -e PG_ADMIN_PASSWORD=postgres
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# PLAY 1: Динамический инвентарий из Survey AWX
+# (дублируется из предыдущих плейбуков — каждый плейбук самодостаточен)
+# -----------------------------------------------------------------------------
+- name: Построить динамический инвентарий из Survey AWX
+  hosts: localhost
+  gather_facts: no
+  tasks:
+
+    # --- Backends ---
+    - name: Добавить бэкенды в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ item | trim }}"
+        groups:
+          - backends
+          - all_ivamail
+        ansible_host: "{{ item | trim }}"
+        ansible_user: root
+      loop: >-
+        {{ (backend_hosts | default('')).split(',')
+           | select('match', '.+') | list }}
+      when:
+        - backend_hosts is defined
+        - backend_hosts | length > 0
+      tags: always
+
+    # --- Frontends ---
+    - name: Добавить фронтенды в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ item | trim }}"
+        groups:
+          - frontends
+          - all_ivamail
+        ansible_host: "{{ item | trim }}"
+        ansible_user: root
+      loop: >-
+        {{ (frontend_hosts | default('')).split(',')
+           | select('match', '.+') | list }}
+      when:
+        - frontend_hosts is defined
+        - frontend_hosts | length > 0
+      tags: always
+
+    # --- HAProxy ---
+    - name: Добавить узлы HAProxy в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ item | trim }}"
+        groups:
+          - haproxy
+          - all_ivamail
+        ansible_host: "{{ item | trim }}"
+        ansible_user: root
+      loop: >-
+        {{ (haproxy_hosts | default('')).split(',')
+           | select('match', '.+') | list }}
+      when:
+        - haproxy_hosts is defined
+        - haproxy_hosts | length > 0
+      tags: always
+
+    # --- Storage (одиночный IP) ---
+    - name: Добавить хост хранилища в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ storage_host | trim }}"
+        groups:
+          - storage
+          - all_ivamail
+        ansible_host: "{{ storage_host | trim }}"
+        ansible_user: root
+      when:
+        - storage_host is defined
+        - storage_host | length > 0
+      tags: always
+
+    # --- Monitoring (одиночный IP) ---
+    - name: Добавить хост мониторинга в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ monitoring_host | trim }}"
+        groups:
+          - monitoring
+          - all_ivamail
+        ansible_host: "{{ monitoring_host | trim }}"
+        ansible_user: root
+      when:
+        - monitoring_host is defined
+        - monitoring_host | length > 0
+      tags: always
+
+# -----------------------------------------------------------------------------
+# PLAY 2: Настройка pg_dump + rsync NFS на узле хранилища
+# -----------------------------------------------------------------------------
+# Узел хранилища (10.3.6.128) имеет прямой доступ к локальному PostgreSQL
+# и является источником NFS-шары — все задачи резервного копирования данных
+# выполняются здесь.
+#
+# Роль backup настраивает:
+#   - cron-задачу ежедневного pg_dump базы ivamail
+#   - cron-задачу rsync NFS-шары /srv/nfs/nfsshared в каталог бэкапов
+#
+# AWX Credential "PostgreSQL Admin" инжектирует PG_ADMIN_PASSWORD в окружение.
+# -----------------------------------------------------------------------------
+- name: Настроить резервное копирование PostgreSQL и NFS на узле хранилища
+  hosts: storage
+  gather_facts: yes
+
+  roles:
+    - role: backup
+      vars:
+        # pg_dump подключается к локальному PostgreSQL (storage host — сервер БД)
+        backup_pg_host: "127.0.0.1"
+        backup_pg_password: "{{ lookup('env', 'PG_ADMIN_PASSWORD') }}"
+        # На storage-хосте запускаем pg_dump и rsync, НЕ git (нет смысла)
+        backup_pg_enabled:  true
+        backup_nfs_enabled: true
+        backup_git_enabled: false
+      tags:
+        - backup
+        - backup_pg
+        - backup_nfs
+
+  post_tasks:
+    - name: Проверить наличие скрипта pg_dump на узле хранилища
+      ansible.builtin.stat:
+        path: /usr/local/bin/ivamail-pg-backup.sh
+      register: pg_backup_script
+      tags:
+        - backup
+        - healthcheck
+
+    - name: Убедиться что скрипт pg_dump создан
+      ansible.builtin.assert:
+        that: pg_backup_script.stat.exists
+        fail_msg: "Скрипт /usr/local/bin/ivamail-pg-backup.sh не найден на {{ inventory_hostname }}"
+        success_msg: "Скрипт pg_dump готов на {{ inventory_hostname }}"
+      tags:
+        - backup
+        - healthcheck
+
+# -----------------------------------------------------------------------------
+# PLAY 3: Инициализация git-репозитория конфигураций на узле мониторинга
+# -----------------------------------------------------------------------------
+# Узел мониторинга (10.3.6.108) — выделенный management-узел, всегда доступен.
+# Здесь хранится версионируемый репозиторий конфигураций кластера:
+#   parameters.conf, /etc/ivamail/*, fstab и прочие файлы.
+#
+# Перед каждым изменением конфигурации плейбук ставит тег в репозитории,
+# что позволяет откатиться к любой предыдущей версии.
+#
+# Роль backup запускается с тегом backup_git — задачи pg_dump и rsync_nfs
+# пропускаются (они привязаны к тегам backup_pg / backup_nfs соответственно).
+# -----------------------------------------------------------------------------
+- name: Инициализировать git-репозиторий конфигураций на узле мониторинга
+  hosts: monitoring
+  gather_facts: yes
+
+  roles:
+    - role: backup
+      vars:
+        # На monitoring-хосте запускаем только git_repo.
+        # pg_dump и rsync_nfs отключены — на мониторинге нет PostgreSQL/NFS-шары.
+        backup_pg_enabled:  false
+        backup_nfs_enabled: false
+        backup_git_enabled: true
+      tags:
+        - backup
+        - backup_git
+
+  post_tasks:
+    - name: Проверить наличие git-репозитория конфигураций
+      ansible.builtin.stat:
+        path: /opt/ivamail-config-repo/.git
+      register: git_repo_stat
+      tags:
+        - backup
+        - healthcheck
+
+    - name: Убедиться что git-репозиторий инициализирован
+      ansible.builtin.assert:
+        that: git_repo_stat.stat.exists
+        fail_msg: "Git-репозиторий /opt/ivamail-config-repo не инициализирован на {{ inventory_hostname }}"
+        success_msg: "Git-репозиторий конфигураций готов на {{ inventory_hostname }}"
+      tags:
+        - backup
+        - healthcheck

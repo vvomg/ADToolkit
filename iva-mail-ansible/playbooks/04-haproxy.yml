@@ -1,0 +1,134 @@
+---
+# =============================================================================
+# 04-haproxy.yml — Установка и настройка HAProxy (Итерация 4)
+# =============================================================================
+# Порядок плеев:
+#   Play 1 (localhost) — динамический инвентарий из Survey AWX
+#   Play 2 (haproxy)   — установка HAProxy, генерация haproxy.cfg из шаблона
+#
+# AWX Credentials: IVA Mail SSH Key
+# Survey vars: haproxy_hosts, frontend_hosts
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# PLAY 1: Динамический инвентарий из Survey AWX
+# (дублируется из предыдущих плейбуков — каждый плейбук самодостаточен)
+# -----------------------------------------------------------------------------
+- name: Построить динамический инвентарий из Survey AWX
+  hosts: localhost
+  gather_facts: no
+  tasks:
+
+    # --- Backends ---
+    - name: Добавить бэкенды в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ item | trim }}"
+        groups:
+          - backends
+          - all_ivamail
+        ansible_host: "{{ item | trim }}"
+        ansible_user: root
+      loop: >-
+        {{ (backend_hosts | default('')).split(',')
+           | select('match', '.+') | list }}
+      when:
+        - backend_hosts is defined
+        - backend_hosts | length > 0
+      tags: always
+
+    # --- Frontends ---
+    - name: Добавить фронтенды в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ item | trim }}"
+        groups:
+          - frontends
+          - all_ivamail
+        ansible_host: "{{ item | trim }}"
+        ansible_user: root
+      loop: >-
+        {{ (frontend_hosts | default('')).split(',')
+           | select('match', '.+') | list }}
+      when:
+        - frontend_hosts is defined
+        - frontend_hosts | length > 0
+      tags: always
+
+    # --- HAProxy ---
+    - name: Добавить узлы HAProxy в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ item | trim }}"
+        groups:
+          - haproxy
+          - all_ivamail
+        ansible_host: "{{ item | trim }}"
+        ansible_user: root
+      loop: >-
+        {{ (haproxy_hosts | default('')).split(',')
+           | select('match', '.+') | list }}
+      when:
+        - haproxy_hosts is defined
+        - haproxy_hosts | length > 0
+      tags: always
+
+    # --- Storage (одиночный IP) ---
+    - name: Добавить хост хранилища в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ storage_host | trim }}"
+        groups:
+          - storage
+          - all_ivamail
+        ansible_host: "{{ storage_host | trim }}"
+        ansible_user: root
+      when:
+        - storage_host is defined
+        - storage_host | length > 0
+      tags: always
+
+    # --- Monitoring (одиночный IP) ---
+    - name: Добавить хост мониторинга в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ monitoring_host | trim }}"
+        groups:
+          - monitoring
+          - all_ivamail
+        ansible_host: "{{ monitoring_host | trim }}"
+        ansible_user: root
+      when:
+        - monitoring_host is defined
+        - monitoring_host | length > 0
+      tags: always
+
+# -----------------------------------------------------------------------------
+# PLAY 2: Установка и настройка HAProxy
+# -----------------------------------------------------------------------------
+# Роль haproxy:
+#   - устанавливает пакет haproxy
+#   - генерирует /etc/haproxy/haproxy.cfg из шаблона (с validate)
+#   - включает и запускает сервис
+#   - локально проверяет доступность порта 80
+#
+# После роли post_tasks выполняет внешнюю проверку с контроллера:
+# убеждается, что HAProxy принимает соединения на порту haproxy_http_port.
+# -----------------------------------------------------------------------------
+- name: Установить и настроить HAProxy
+  hosts: haproxy
+  gather_facts: yes
+
+  roles:
+    - role: haproxy
+      tags:
+        - haproxy
+
+  post_tasks:
+    - name: >-
+        Проверить доступность HAProxy на {{ inventory_hostname }}:{{ haproxy_http_port | default(80) }}
+        с контроллера
+      ansible.builtin.wait_for:
+        host:    "{{ inventory_hostname }}"
+        port:    "{{ haproxy_http_port | default(80) }}"
+        timeout: 30
+        state:   started
+      delegate_to: localhost
+      tags:
+        - haproxy
+        - healthcheck

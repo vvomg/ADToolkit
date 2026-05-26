@@ -1,0 +1,235 @@
+---
+# =============================================================================
+# 03-frontends.yml — Установка IVA Mail на фронтенды (Итерация 4)
+# =============================================================================
+# Порядок плеев:
+#   Play 1 (localhost)   — строит динамический инвентарий из Survey AWX
+#   Play 2 (frontends)   — параллельная установка пакета в режиме --frontend
+#                          (роли: ivamail_common, ivamail_frontend)
+#   Play 3 (frontends)   — параллельный запуск ivamail.service + ожидание CMD-порта
+#   Play 4 (frontends)   — параллельная настройка кластера через CMD-протокол (порт 106)
+#
+# Учётные данные AWX (Credentials):
+#   - "IVA Mail SSH Key"   — SSH-доступ к фронтендам
+#   - "IVA Mail CMD"       — IVAMAIL_CMD_USER / IVAMAIL_CMD_PASSWORD → cmd_client.py
+#
+# Ключевые Survey-переменные:
+#   frontend_hosts         — фронтенды (CSV): "10.3.6.102,10.3.6.103"
+#   backend_hosts          — бэкенды (CSV): "10.3.6.126,10.3.6.127"
+#   package_source_type    — стратегия доставки пакета: url|controller|server_same|server_per_node
+#   node_startup_delay     — пауза (сек) после старта сервиса  [default: 10]
+#   cmd_port_wait_timeout  — таймаут ожидания CMD-порта (сек)  [default: 60]
+#
+# Запуск вне AWX (для тестирования):
+#   ansible-playbook playbooks/03-frontends.yml \
+#     -e @tests/survey_vars.yml \
+#     -e IVAMAIL_CMD_USER=admin -e IVAMAIL_CMD_PASSWORD=admin
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# PLAY 1: Динамический инвентарий из Survey AWX
+# (дублируется из предыдущих плейбуков — каждый плейбук самодостаточен)
+# -----------------------------------------------------------------------------
+- name: Построить динамический инвентарий из Survey AWX
+  hosts: localhost
+  gather_facts: no
+  tasks:
+
+    # --- Backends ---
+    - name: Добавить бэкенды в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ item | trim }}"
+        groups:
+          - backends
+          - all_ivamail
+        ansible_host: "{{ item | trim }}"
+        ansible_user: root
+      loop: >-
+        {{ (backend_hosts | default('')).split(',')
+           | select('match', '.+') | list }}
+      when:
+        - backend_hosts is defined
+        - backend_hosts | length > 0
+      tags: always
+
+    # --- Frontends ---
+    - name: Добавить фронтенды в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ item | trim }}"
+        groups:
+          - frontends
+          - all_ivamail
+        ansible_host: "{{ item | trim }}"
+        ansible_user: root
+      loop: >-
+        {{ (frontend_hosts | default('')).split(',')
+           | select('match', '.+') | list }}
+      when:
+        - frontend_hosts is defined
+        - frontend_hosts | length > 0
+      tags: always
+
+    # --- HAProxy ---
+    - name: Добавить узлы HAProxy в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ item | trim }}"
+        groups:
+          - haproxy
+          - all_ivamail
+        ansible_host: "{{ item | trim }}"
+        ansible_user: root
+      loop: >-
+        {{ (haproxy_hosts | default('')).split(',')
+           | select('match', '.+') | list }}
+      when:
+        - haproxy_hosts is defined
+        - haproxy_hosts | length > 0
+      tags: always
+
+    # --- Storage (одиночный IP) ---
+    - name: Добавить хост хранилища в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ storage_host | trim }}"
+        groups:
+          - storage
+          - all_ivamail
+        ansible_host: "{{ storage_host | trim }}"
+        ansible_user: root
+      when:
+        - storage_host is defined
+        - storage_host | length > 0
+      tags: always
+
+    # --- Monitoring (одиночный IP) ---
+    - name: Добавить хост мониторинга в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ monitoring_host | trim }}"
+        groups:
+          - monitoring
+          - all_ivamail
+        ansible_host: "{{ monitoring_host | trim }}"
+        ansible_user: root
+      when:
+        - monitoring_host is defined
+        - monitoring_host | length > 0
+      tags: always
+
+# -----------------------------------------------------------------------------
+# PLAY 2: Установка IVA Mail на фронтенды (параллельно, без serial:)
+# -----------------------------------------------------------------------------
+# Роль ivamail_common: доставка и установка deb-пакета (4 стратегии).
+# Роль ivamail_frontend: создание parameters.conf с ARGS="--frontend",
+#   настройка владельца /var/ivamail, включение сервиса.
+#
+# Фронтенды НЕ требуют:
+#   - настройки PostgreSQL / запуска db-setup.sh
+#   - монтирования NFS-шары
+#
+# Параллельный режим намеренный: оба фронтенда идентичны, гонок нет.
+# -----------------------------------------------------------------------------
+- name: Установить IVA Mail на фронтенды (параллельно)
+  hosts: frontends
+  gather_facts: yes
+
+  roles:
+    - role: ivamail_common
+      tags: ivamail_common, install
+
+    - role: ivamail_frontend
+      tags: ivamail_frontend, install
+
+  post_tasks:
+    - name: Убедиться что ivamail.service включён в автозапуск
+      ansible.builtin.service:
+        name: ivamail
+        enabled: true
+      tags:
+        - ivamail_frontend
+        - healthcheck
+
+# -----------------------------------------------------------------------------
+# PLAY 3: Запуск ivamail.service на фронтендах + ожидание CMD-порта
+# -----------------------------------------------------------------------------
+# Параллельный запуск — фронтенды независимы на этапе первого старта.
+# После запуска выдерживается пауза node_startup_delay для стабилизации,
+# затем проверяется доступность CMD-порта (106) с контроллера.
+# -----------------------------------------------------------------------------
+- name: Запустить ivamail на фронтендах (параллельно) и дождаться CMD-порта
+  hosts: frontends
+  gather_facts: no
+
+  tasks:
+    - name: Запустить ivamail.service (--frontend режим из parameters.conf)
+      ansible.builtin.service:
+        name: ivamail
+        state: started
+      tags:
+        - ivamail_frontend
+        - start
+
+    # Пауза нужна: сервис обновляет внутренние структуры после старта,
+    # CMD-порт поднимается не мгновенно.
+    - name: Пауза {{ node_startup_delay | default(10) }} сек. после запуска
+      ansible.builtin.pause:
+        seconds: "{{ node_startup_delay | default(10) }}"
+      tags:
+        - ivamail_frontend
+        - start
+
+    - name: Ждать готовности CMD-порта {{ cmd_port | default(106) }} на {{ inventory_hostname }}
+      ansible.builtin.wait_for:
+        host:    "{{ inventory_hostname }}"
+        port:    "{{ cmd_port | default(106) }}"
+        timeout: "{{ cmd_port_wait_timeout | default(60) }}"
+        state:   started
+      delegate_to: localhost
+      tags:
+        - ivamail_frontend
+        - start
+        - healthcheck
+
+# -----------------------------------------------------------------------------
+# PLAY 4: Настройка кластера IVA Mail через CMD-протокол (порт 106)
+# -----------------------------------------------------------------------------
+# scripts/cmd_client.py подключается к каждому фронтенду (localhost:106 на узле)
+# и передаёт параметры кластера: BackendList, OwnAddress, Port.
+#
+# Фронтенды получают список бэкендов через cluster-config — это позволяет
+# им маршрутизировать клиентские запросы на нужные узлы кластера.
+#
+# Учётные данные CMD инжектируются AWX Credential "IVA Mail CMD":
+#   IVAMAIL_CMD_USER / IVAMAIL_CMD_PASSWORD
+#
+# ansible.builtin.script запускает скрипт локально на контроллере,
+# но передаёт --host {{ inventory_hostname }} чтобы подключиться к нужному узлу.
+# -----------------------------------------------------------------------------
+- name: Настроить кластерные параметры IVA Mail через CMD-протокол
+  hosts: frontends
+  gather_facts: no
+
+  tasks:
+    - name: Настроить кластер IVA Mail (BackendList, OwnAddress, Port) через CMD
+      ansible.builtin.script:
+        cmd: >-
+          scripts/cmd_client.py
+          --host {{ inventory_hostname }}
+          --port {{ cmd_port | default(106) }}
+          --action cluster-config
+          --backends {{ backend_hosts | default('') }}
+          --own-ip {{ inventory_hostname }}
+          --timeout {{ cmd_port_wait_timeout | default(60) }}
+      environment:
+        IVAMAIL_CMD_USER:     "{{ lookup('env', 'IVAMAIL_CMD_USER') }}"
+        IVAMAIL_CMD_PASSWORD: "{{ lookup('env', 'IVAMAIL_CMD_PASSWORD') }}"
+      register: cluster_config_result
+      tags:
+        - ivamail_frontend
+        - cluster_config
+
+    - name: Показать результат настройки кластера на {{ inventory_hostname }}
+      ansible.builtin.debug:
+        var: cluster_config_result.stdout_lines
+      when: cluster_config_result.stdout_lines is defined
+      tags:
+        - ivamail_frontend
+        - cluster_config

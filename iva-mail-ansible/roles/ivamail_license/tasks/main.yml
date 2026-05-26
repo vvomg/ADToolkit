@@ -1,0 +1,10 @@
+---
+# tasks/main.yml
+# Диспетчер лицензионных операций IVA Mail.
+# Переключает между запросом и установкой лицензии на основе ivamail_license_action.
+
+- name: "Выполнить лицензионную операцию ({{ ivamail_license_action }})"
+  ansible.builtin.include_tasks: "license_{{ ivamail_license_action }}.yml"
+  tags:
+    - ivamail_license
+    - "license_{{ ivamail_license_action }}"

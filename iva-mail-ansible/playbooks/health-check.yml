@@ -1,0 +1,348 @@
+---
+# =============================================================================
+# health-check.yml — Финальная проверка здоровья кластера IVA Mail (Итерация 6)
+# =============================================================================
+# Выполняет комплексную проверку всех компонентов кластера:
+#   - IVA Mail сервис + CMD-порт 106 на бэкендах и фронтендах
+#   - PostgreSQL порт 5432 + NFS экспорт на узле хранилища
+#   - HAProxy сервис + порты 80/143/25 на балансировщике
+#   - node_exporter порт 9100 на всех узлах
+#   - Prometheus/Grafana/Graylog на узле мониторинга
+#
+# Запуск: ansible-playbook playbooks/health-check.yml -e @tests/survey_vars.yml
+# Все wait_for — delegate_to: localhost (контроллер проверяет порты удалённо)
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# PLAY 1: Динамический инвентарь из Survey AWX
+# -----------------------------------------------------------------------------
+- name: Построить динамический инвентарь из Survey AWX
+  hosts: localhost
+  gather_facts: no
+  tasks:
+
+    # --- Backends ---
+    - name: Добавить бэкенды в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ item | trim }}"
+        groups:
+          - backends
+          - all_ivamail
+        ansible_host: "{{ item | trim }}"
+        ansible_user: root
+      loop: >-
+        {{ (backend_hosts | default('')).split(',')
+           | select('match', '.+') | list }}
+      when:
+        - backend_hosts is defined
+        - backend_hosts | length > 0
+      tags: always
+
+    # --- Frontends ---
+    - name: Добавить фронтенды в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ item | trim }}"
+        groups:
+          - frontends
+          - all_ivamail
+        ansible_host: "{{ item | trim }}"
+        ansible_user: root
+      loop: >-
+        {{ (frontend_hosts | default('')).split(',')
+           | select('match', '.+') | list }}
+      when:
+        - frontend_hosts is defined
+        - frontend_hosts | length > 0
+      tags: always
+
+    # --- HAProxy ---
+    - name: Добавить узлы HAProxy в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ item | trim }}"
+        groups:
+          - haproxy
+          - all_ivamail
+        ansible_host: "{{ item | trim }}"
+        ansible_user: root
+      loop: >-
+        {{ (haproxy_hosts | default('')).split(',')
+           | select('match', '.+') | list }}
+      when:
+        - haproxy_hosts is defined
+        - haproxy_hosts | length > 0
+      tags: always
+
+    # --- Storage (одиночный IP, не список) ---
+    - name: Добавить хост хранилища в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ storage_host | trim }}"
+        groups:
+          - storage
+          - all_ivamail
+        ansible_host: "{{ storage_host | trim }}"
+        ansible_user: root
+      when:
+        - storage_host is defined
+        - storage_host | length > 0
+      tags: always
+
+    # --- Monitoring (одиночный IP) ---
+    - name: Добавить хост мониторинга в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ monitoring_host | trim }}"
+        groups:
+          - monitoring
+          - all_ivamail
+        ansible_host: "{{ monitoring_host | trim }}"
+        ansible_user: root
+      when:
+        - monitoring_host is defined
+        - monitoring_host | length > 0
+      tags: always
+
+# -----------------------------------------------------------------------------
+# PLAY 2: Проверка IVA Mail на бэкендах
+# -----------------------------------------------------------------------------
+- name: Проверить IVA Mail сервис на бэкендах
+  hosts: backends
+  gather_facts: no
+  tasks:
+
+    - name: Собрать факты о системных сервисах
+      ansible.builtin.service_facts:
+      tags: [healthcheck, ivamail]
+
+    - name: Проверить что ivamail.service запущен на {{ inventory_hostname }}
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.services['ivamail.service'] is defined
+          - ansible_facts.services['ivamail.service'].state == 'running'
+        fail_msg: "ivamail.service не запущен на {{ inventory_hostname }} (состояние: {{ ansible_facts.services['ivamail.service'].state | default('unknown') }})"
+        success_msg: "ivamail.service running на {{ inventory_hostname }}"
+      tags: [healthcheck, ivamail]
+
+    - name: Проверить доступность CMD-порта {{ cmd_port | default(106) }} на {{ inventory_hostname }}
+      ansible.builtin.wait_for:
+        host:    "{{ inventory_hostname }}"
+        port:    "{{ cmd_port | default(106) }}"
+        timeout: "{{ cmd_port_wait_timeout | default(30) }}"
+        state:   started
+      delegate_to: localhost
+      tags: [healthcheck, ivamail]
+
+# -----------------------------------------------------------------------------
+# PLAY 3: Проверка IVA Mail на фронтендах
+# -----------------------------------------------------------------------------
+- name: Проверить IVA Mail сервис на фронтендах
+  hosts: frontends
+  gather_facts: no
+  tasks:
+
+    - name: Собрать факты о системных сервисах
+      ansible.builtin.service_facts:
+      tags: [healthcheck, ivamail]
+
+    - name: Проверить что ivamail.service запущен на {{ inventory_hostname }}
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.services['ivamail.service'] is defined
+          - ansible_facts.services['ivamail.service'].state == 'running'
+        fail_msg: "ivamail.service не запущен на {{ inventory_hostname }} (состояние: {{ ansible_facts.services['ivamail.service'].state | default('unknown') }})"
+        success_msg: "ivamail.service running на {{ inventory_hostname }}"
+      tags: [healthcheck, ivamail]
+
+    - name: Проверить доступность CMD-порта {{ cmd_port | default(106) }} на {{ inventory_hostname }}
+      ansible.builtin.wait_for:
+        host:    "{{ inventory_hostname }}"
+        port:    "{{ cmd_port | default(106) }}"
+        timeout: "{{ cmd_port_wait_timeout | default(30) }}"
+        state:   started
+      delegate_to: localhost
+      tags: [healthcheck, ivamail]
+
+# -----------------------------------------------------------------------------
+# PLAY 4: Проверка PostgreSQL и NFS на узле хранилища
+# -----------------------------------------------------------------------------
+- name: Проверить PostgreSQL и NFS на узле хранилища
+  hosts: storage
+  gather_facts: no
+  tasks:
+
+    - name: Собрать факты о системных сервисах
+      ansible.builtin.service_facts:
+      tags: [healthcheck, postgres, nfs]
+
+    - name: Проверить что postgresql сервис запущен
+      ansible.builtin.assert:
+        that:
+          - "'postgresql.service' in ansible_facts.services or ansible_facts.services | dict2items | selectattr('key', 'match', 'postgresql.*') | list | length > 0"
+        fail_msg: "PostgreSQL сервис не найден или не запущен на {{ inventory_hostname }}"
+        success_msg: "PostgreSQL запущен на {{ inventory_hostname }}"
+      tags: [healthcheck, postgres]
+
+    - name: Проверить доступность PostgreSQL на порту {{ postgres_port | default(5432) }}
+      ansible.builtin.wait_for:
+        host:    "{{ inventory_hostname }}"
+        port:    "{{ postgres_port | default(5432) }}"
+        timeout: 30
+        state:   started
+      delegate_to: localhost
+      tags: [healthcheck, postgres]
+
+    - name: Проверить что NFS экспорты активны (showmount -e)
+      ansible.builtin.command:
+        cmd: "showmount -e 127.0.0.1"
+      register: nfs_exports
+      changed_when: false
+      tags: [healthcheck, nfs]
+
+    - name: Убедиться что NFS экспортирует каталог {{ nfs_export_dir | default('/srv/nfs/nfsshared') }}
+      ansible.builtin.assert:
+        that: "nfs_export_dir | default('/srv/nfs/nfsshared') in nfs_exports.stdout"
+        fail_msg: "NFS не экспортирует {{ nfs_export_dir | default('/srv/nfs/nfsshared') }} на {{ inventory_hostname }}"
+        success_msg: "NFS экспорт активен на {{ inventory_hostname }}"
+      tags: [healthcheck, nfs]
+
+# -----------------------------------------------------------------------------
+# PLAY 5: Проверка HAProxy на балансировщике
+# -----------------------------------------------------------------------------
+- name: Проверить HAProxy на балансировщике
+  hosts: haproxy
+  gather_facts: no
+  tasks:
+
+    - name: Собрать факты о системных сервисах
+      ansible.builtin.service_facts:
+      tags: [healthcheck, haproxy]
+
+    - name: Проверить что haproxy сервис запущен
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.services['haproxy.service'] is defined
+          - ansible_facts.services['haproxy.service'].state == 'running'
+        fail_msg: "haproxy.service не запущен на {{ inventory_hostname }}"
+        success_msg: "haproxy.service running на {{ inventory_hostname }}"
+      tags: [healthcheck, haproxy]
+
+    - name: Проверить доступность HAProxy HTTP (порт 80)
+      ansible.builtin.wait_for:
+        host:    "{{ inventory_hostname }}"
+        port:    80
+        timeout: 30
+        state:   started
+      delegate_to: localhost
+      tags: [healthcheck, haproxy]
+
+    - name: Проверить доступность HAProxy IMAP (порт 143)
+      ansible.builtin.wait_for:
+        host:    "{{ inventory_hostname }}"
+        port:    143
+        timeout: 30
+        state:   started
+      delegate_to: localhost
+      tags: [healthcheck, haproxy]
+
+    - name: Проверить доступность HAProxy SMTP (порт 25)
+      ansible.builtin.wait_for:
+        host:    "{{ inventory_hostname }}"
+        port:    25
+        timeout: 30
+        state:   started
+      delegate_to: localhost
+      tags: [healthcheck, haproxy]
+
+# -----------------------------------------------------------------------------
+# PLAY 6: Проверка node_exporter на всех узлах кластера
+# -----------------------------------------------------------------------------
+- name: Проверить node_exporter на всех узлах кластера
+  hosts: all_ivamail
+  gather_facts: no
+  tasks:
+
+    - name: Проверить доступность node_exporter (порт 9100) на {{ inventory_hostname }}
+      ansible.builtin.wait_for:
+        host:    "{{ inventory_hostname }}"
+        port:    9100
+        timeout: 30
+        state:   started
+      delegate_to: localhost
+      tags: [healthcheck, node_exporter]
+
+# -----------------------------------------------------------------------------
+# PLAY 7: Проверка стека мониторинга (Prometheus, Grafana, Graylog)
+# -----------------------------------------------------------------------------
+- name: Проверить стек мониторинга (Prometheus, Grafana, Graylog)
+  hosts: monitoring
+  gather_facts: no
+  tasks:
+
+    - name: Собрать факты о системных сервисах
+      ansible.builtin.service_facts:
+      tags: [healthcheck, monitoring]
+
+    - name: Проверить что prometheus сервис запущен
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.services['prometheus.service'] is defined
+          - ansible_facts.services['prometheus.service'].state == 'running'
+        fail_msg: "prometheus.service не запущен на {{ inventory_hostname }}"
+        success_msg: "prometheus.service running"
+      tags: [healthcheck, monitoring]
+
+    - name: Проверить что grafana-server сервис запущен
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.services['grafana-server.service'] is defined
+          - ansible_facts.services['grafana-server.service'].state == 'running'
+        fail_msg: "grafana-server.service не запущен на {{ inventory_hostname }}"
+        success_msg: "grafana-server.service running"
+      tags: [healthcheck, monitoring]
+
+    - name: Проверить что graylog-server сервис запущен
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.services['graylog-server.service'] is defined
+          - ansible_facts.services['graylog-server.service'].state == 'running'
+        fail_msg: "graylog-server.service не запущен на {{ inventory_hostname }}"
+        success_msg: "graylog-server.service running"
+      tags: [healthcheck, monitoring]
+
+    - name: Проверить доступность Prometheus API (порт 9090)
+      ansible.builtin.uri:
+        url:         "http://{{ inventory_hostname }}:9090/-/healthy"
+        status_code: 200
+        timeout:     10
+      delegate_to: localhost
+      tags: [healthcheck, monitoring]
+
+    - name: Проверить доступность Grafana (порт 3000)
+      ansible.builtin.uri:
+        url:         "http://{{ inventory_hostname }}:3000/api/health"
+        status_code: 200
+        timeout:     10
+      delegate_to: localhost
+      tags: [healthcheck, monitoring]
+
+    - name: Проверить доступность Graylog (порт 9000)
+      ansible.builtin.wait_for:
+        host:    "{{ inventory_hostname }}"
+        port:    9000
+        timeout: 30
+        state:   started
+      delegate_to: localhost
+      tags: [healthcheck, monitoring]
+
+    - name: Вывести итоговый статус кластера IVA Mail
+      ansible.builtin.debug:
+        msg: |
+          ================================================================
+          Финальная проверка кластера IVA Mail завершена успешно!
+          Бэкенды:   {{ backend_hosts  | default('N/A') }}
+          Фронтенды: {{ frontend_hosts | default('N/A') }}
+          HAProxy:   {{ haproxy_hosts  | default('N/A') }}
+          Хранилище: {{ storage_host   | default('N/A') }}
+          Мониторинг:{{ monitoring_host | default('N/A') }}
+          ================================================================
+      run_once: true
+      delegate_to: localhost
+      tags: [healthcheck]

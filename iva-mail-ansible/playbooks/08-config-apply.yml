@@ -1,0 +1,124 @@
+---
+# =============================================================================
+# 08-config-apply.yml — Применить конфигурацию IVA Mail из JSON-файлов
+# =============================================================================
+# Порядок плеев:
+#   Play 1 (localhost)  — динамический инвентарий из Survey AWX
+#   Play 2 (backends)   — config-restore через CMD для каждого бэкенда
+#
+# Используется для:
+#   - Применения изменений конфигурации без перезапуска
+#   - Восстановления после ручного редактирования JSON-файлов
+#   - Применения конфигурации из произвольного каталога
+#
+# AWX Credentials: IVA Mail SSH Key + IVA Mail CMD
+# Survey vars: backend_hosts, config_input_dir (путь к JSON-файлам на AWX контроллере)
+#
+# Запуск вне AWX:
+#   IVAMAIL_CMD_USER=admin IVAMAIL_CMD_PASSWORD=secret \
+#   ansible-playbook playbooks/08-config-apply.yml \
+#     -e @tests/survey_vars.yml \
+#     -e config_input_dir=/opt/ivamail-config-repo/cmd-configs/10.3.6.126
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# PLAY 1: Динамический инвентарий из Survey AWX
+# -----------------------------------------------------------------------------
+- name: Построить динамический инвентарий из Survey AWX
+  hosts: localhost
+  gather_facts: no
+  tasks:
+
+    - name: Добавить бэкенды в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ item | trim }}"
+        groups:
+          - backends
+          - all_ivamail
+        ansible_host: "{{ item | trim }}"
+        ansible_user: root
+      loop: >-
+        {{ (backend_hosts | default('')).split(',')
+           | select('match', '.+') | list }}
+      when:
+        - backend_hosts is defined
+        - backend_hosts | length > 0
+      tags: always
+
+# -----------------------------------------------------------------------------
+# PLAY 2: Применить конфигурацию через CMD для каждого бэкенда
+# -----------------------------------------------------------------------------
+- name: Применить конфигурацию IVA Mail через CMD
+  hosts: backends
+  gather_facts: no
+  serial: 1   # последовательно — безопасно применяем один за другим
+
+  tasks:
+
+    - name: Проверить что config_input_dir задан
+      ansible.builtin.assert:
+        that:
+          - config_input_dir is defined
+          - config_input_dir | length > 0
+        fail_msg: >
+          Переменная config_input_dir не задана.
+          Укажите путь к каталогу JSON-файлов конфигурации на AWX контроллере.
+          Пример: /opt/ivamail-config-repo/cmd-configs/10.3.6.126
+      delegate_to: localhost
+      tags:
+        - config_apply
+
+    - name: Проверить наличие каталога конфигурации на AWX контроллере
+      ansible.builtin.stat:
+        path: "{{ config_input_dir }}"
+      register: _input_dir_stat
+      delegate_to: localhost
+      tags:
+        - config_apply
+
+    - name: Убедиться что каталог конфигурации существует
+      ansible.builtin.assert:
+        that:
+          - _input_dir_stat.stat.exists
+          - _input_dir_stat.stat.isdir
+        fail_msg: "Каталог конфигурации не найден на AWX контроллере: {{ config_input_dir }}"
+      delegate_to: localhost
+      tags:
+        - config_apply
+
+    - name: "Применить конфигурацию через CMD ({{ inventory_hostname }})"
+      ansible.builtin.script:
+        cmd: >-
+          scripts/cmd_client.py
+          --host {{ inventory_hostname }}
+          --port {{ cmd_port | default(106) }}
+          --action config-restore
+          --input-dir {{ config_input_dir }}
+          --timeout {{ cmd_port_wait_timeout | default(30) }}
+      environment:
+        IVAMAIL_CMD_USER:     "{{ lookup('env', 'IVAMAIL_CMD_USER') }}"
+        IVAMAIL_CMD_PASSWORD: "{{ lookup('env', 'IVAMAIL_CMD_PASSWORD') }}"
+      delegate_to: localhost
+      changed_when: true
+      no_log: true
+      register: _apply_result
+      tags:
+        - config_apply
+
+    - name: Подтвердить успешное применение конфигурации
+      ansible.builtin.debug:
+        msg: >-
+          Конфигурация применена на {{ inventory_hostname }}:
+          {{ _apply_result.stdout_lines | default([]) | last | default('OK') }}
+      tags:
+        - config_apply
+
+  post_tasks:
+    - name: Проверить доступность CMD-порта после применения конфигурации
+      ansible.builtin.wait_for:
+        host: "{{ inventory_hostname }}"
+        port: "{{ cmd_port | default(106) }}"
+        timeout: "{{ cmd_port_wait_timeout | default(60) }}"
+      tags:
+        - config_apply
+        - healthcheck

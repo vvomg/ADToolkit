@@ -1,0 +1,70 @@
+---
+# tasks/license_install.yml
+# Устанавливаем лицензию через CMD-протокол.
+# Лицензионный файл должен находиться на контроллере AWX.
+# cmd_client.py запускается на контроллере (delegate_to: localhost).
+# ТОЛЬКО на be1 (run_once: true) — остальные узлы кластера получат лицензию
+# автоматически при перезапуске сервиса с флагом --backend.
+
+- name: Убедиться что файл лицензии существует на контроллере AWX
+  # Проверяем наличие файла до попытки установки, чтобы выдать понятную ошибку.
+  ansible.builtin.stat:
+    path: "{{ ivamail_license_file_path }}"
+  register: license_file_stat
+  run_once: true
+  delegate_to: localhost
+  tags:
+    - ivamail_license
+    - license_install
+
+- name: Проверить доступность файла лицензии
+  # Файл должен существовать, быть обычным файлом и иметь ненулевой размер.
+  ansible.builtin.assert:
+    that:
+      - license_file_stat.stat.exists
+      - license_file_stat.stat.isreg
+      - license_file_stat.stat.size > 0
+    fail_msg: >
+      Файл лицензии не найден или пуст: {{ ivamail_license_file_path }}.
+      Разместите лицензионный файл на контроллере AWX (10.3.6.100)
+      по пути, указанному в переменной ivamail_license_file_path,
+      либо передайте правильный путь через Survey-переменную license_file_path.
+  run_once: true
+  delegate_to: localhost
+  tags:
+    - ivamail_license
+    - license_install
+
+- name: "Установить лицензию IVA Mail (LicenseInstall на {{ inventory_hostname }})"
+  # Устанавливаем лицензию через CMD только на be1 (run_once).
+  # Остальные бэкенды кластера подтянут лицензию автоматически при перезапуске.
+  # no_log: true — переменные окружения содержат учётные данные CMD.
+  ansible.builtin.script:
+    cmd: >-
+      scripts/cmd_client.py
+      --host {{ inventory_hostname }}
+      --port {{ cmd_port | default(106) }}
+      --action install
+      --license-file '{{ ivamail_license_file_path }}'
+      --timeout {{ cmd_port_wait_timeout | default(60) }}
+  environment:
+    IVAMAIL_CMD_USER: "{{ lookup('env', 'IVAMAIL_CMD_USER') }}"
+    IVAMAIL_CMD_PASSWORD: "{{ lookup('env', 'IVAMAIL_CMD_PASSWORD') }}"
+  register: license_install_result
+  run_once: true
+  delegate_to: localhost
+  no_log: true
+  tags:
+    - ivamail_license
+    - license_install
+
+- name: Подтвердить успешную установку лицензии
+  # Информационное сообщение: лицензия установлена на be1, кластер обновится при рестарте.
+  ansible.builtin.debug:
+    msg: >-
+      Лицензия успешно установлена на {{ inventory_hostname }} (be1).
+      Остальные узлы кластера подтянут её при перезапуске сервиса с --backend.
+  run_once: true
+  tags:
+    - ivamail_license
+    - license_install

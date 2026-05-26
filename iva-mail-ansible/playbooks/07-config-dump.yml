@@ -1,0 +1,188 @@
+---
+# =============================================================================
+# 07-config-dump.yml — Снимок конфигурации IVA Mail в git-репозиторий
+# =============================================================================
+# Порядок плеев:
+#   Play 1 (localhost)  — динамический инвентарий из Survey AWX
+#   Play 2 (backends)   — config-dump через CMD → /tmp на AWX контроллере
+#   Play 3 (monitoring) — git add + commit + tag снимка конфигурации
+#
+# AWX Credentials: IVA Mail SSH Key + IVA Mail CMD
+# Survey vars: backend_hosts, monitoring_host, config_tag_name (опц.), config_modules (опц.)
+#
+# Запуск вне AWX:
+#   IVAMAIL_CMD_USER=admin IVAMAIL_CMD_PASSWORD=secret \
+#   ansible-playbook playbooks/07-config-dump.yml \
+#     -e @tests/survey_vars.yml
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# PLAY 1: Динамический инвентарий из Survey AWX
+# -----------------------------------------------------------------------------
+- name: Построить динамический инвентарий из Survey AWX
+  hosts: localhost
+  gather_facts: no
+  tasks:
+
+    - name: Добавить бэкенды в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ item | trim }}"
+        groups:
+          - backends
+          - all_ivamail
+        ansible_host: "{{ item | trim }}"
+        ansible_user: root
+      loop: >-
+        {{ (backend_hosts | default('')).split(',')
+           | select('match', '.+') | list }}
+      when:
+        - backend_hosts is defined
+        - backend_hosts | length > 0
+      tags: always
+
+    - name: Добавить хост мониторинга в инвентарий
+      ansible.builtin.add_host:
+        name:         "{{ monitoring_host | trim }}"
+        groups:
+          - monitoring
+          - all_ivamail
+        ansible_host: "{{ monitoring_host | trim }}"
+        ansible_user: root
+      when:
+        - monitoring_host is defined
+        - monitoring_host | length > 0
+      tags: always
+
+# -----------------------------------------------------------------------------
+# PLAY 2: Снимок конфигурации бэкендов через CMD → /tmp на AWX контроллере
+# -----------------------------------------------------------------------------
+- name: Снять конфиг-дамп всех бэкендов IVA Mail через CMD
+  hosts: backends
+  gather_facts: no
+  serial: 1   # последовательно — минимизируем нагрузку на CMD-сервер
+
+  tasks:
+
+    - name: Создать временный каталог дампа на AWX контроллере
+      ansible.builtin.file:
+        path: "/tmp/ivamail-dump-{{ inventory_hostname }}"
+        state: directory
+        mode: "0700"
+      delegate_to: localhost
+      tags:
+        - config_dump
+
+    - name: "Конфиг-дамп IVA Mail через CMD ({{ inventory_hostname }})"
+      ansible.builtin.script:
+        cmd: >-
+          scripts/cmd_client.py
+          --host {{ inventory_hostname }}
+          --port {{ cmd_port | default(106) }}
+          --action config-dump
+          --output-dir /tmp/ivamail-dump-{{ inventory_hostname }}
+          --modules {{ config_modules | default('Cluster,CMD,SMTP,IMAP,POP3,WebAccess,AntiSpam,Antivirus') }}
+          --timeout {{ cmd_port_wait_timeout | default(30) }}
+      environment:
+        IVAMAIL_CMD_USER:     "{{ lookup('env', 'IVAMAIL_CMD_USER') }}"
+        IVAMAIL_CMD_PASSWORD: "{{ lookup('env', 'IVAMAIL_CMD_PASSWORD') }}"
+      delegate_to: localhost
+      changed_when: true
+      no_log: true
+      register: _dump_result
+      tags:
+        - config_dump
+
+    - name: Показать сводку дампа ({{ inventory_hostname }})
+      ansible.builtin.debug:
+        msg: "config-dump {{ inventory_hostname }}: {{ _dump_result.stdout_lines | default([]) | last | default('OK') }}"
+      tags:
+        - config_dump
+
+# -----------------------------------------------------------------------------
+# PLAY 3: Копирование JSON-файлов в git-репозиторий и создание тега
+# -----------------------------------------------------------------------------
+- name: Сохранить снимок конфигурации в git-репозиторий на monitoring
+  hosts: monitoring
+  gather_facts: yes
+
+  vars:
+    _backend_list: >-
+      {{ (backend_hosts | default('')).split(',')
+         | select('match', '.+') | map('trim') | list }}
+    _tag_name: >-
+      {{ config_tag_name | default(
+           'config-' + ansible_date_time.date
+         ) }}
+
+  tasks:
+
+    - name: Создать каталоги для каждого бэкенда в git-репозитории
+      ansible.builtin.file:
+        path: "/opt/ivamail-config-repo/cmd-configs/{{ item }}"
+        state: directory
+        mode: "0750"
+        owner: root
+        group: root
+      loop: "{{ _backend_list }}"
+      tags:
+        - config_dump
+
+    - name: Скопировать JSON-дампы из AWX контроллера в git-репозиторий
+      ansible.builtin.copy:
+        src:  "/tmp/ivamail-dump-{{ item }}/"
+        dest: "/opt/ivamail-config-repo/cmd-configs/{{ item }}/"
+        mode: "0640"
+      loop: "{{ _backend_list }}"
+      tags:
+        - config_dump
+
+    - name: Удалить временные каталоги с AWX контроллера
+      ansible.builtin.file:
+        path: "/tmp/ivamail-dump-{{ item }}"
+        state: absent
+      loop: "{{ _backend_list }}"
+      delegate_to: localhost
+      tags:
+        - config_dump
+
+    - name: Git add — проиндексировать все изменения конфигурации
+      ansible.builtin.command:
+        cmd: git -C /opt/ivamail-config-repo add cmd-configs/
+      changed_when: true
+      tags:
+        - config_dump
+
+    - name: Git commit снимка конфигурации (только при наличии изменений)
+      ansible.builtin.shell: |
+        git -C /opt/ivamail-config-repo diff --cached --quiet || \
+          git -C /opt/ivamail-config-repo commit \
+            -m "config dump {{ ansible_date_time.iso8601 }} tag={{ _tag_name }}"
+      changed_when: true
+      tags:
+        - config_dump
+
+    - name: "Создать git-тег снимка конфигурации: {{ _tag_name }}"
+      ansible.builtin.command:
+        cmd: git -C /opt/ivamail-config-repo tag "{{ _tag_name }}"
+      register: _git_tag_result
+      changed_when: _git_tag_result.rc == 0
+      failed_when: false   # тег с таким именем может уже существовать
+      tags:
+        - config_dump
+
+    - name: Показать доступные теги конфигурации
+      ansible.builtin.command:
+        cmd: git -C /opt/ivamail-config-repo tag --list "config-*" --sort=-creatordate
+      register: _git_tags
+      changed_when: false
+      tags:
+        - config_dump
+
+    - name: Сводка — список тегов конфигурации
+      ansible.builtin.debug:
+        msg: |
+          Снимок конфигурации создан: {{ _tag_name }}
+          Доступные теги:
+          {{ _git_tags.stdout }}
+      tags:
+        - config_dump
