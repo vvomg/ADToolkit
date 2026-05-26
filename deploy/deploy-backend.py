@@ -26,11 +26,12 @@ from pathlib import Path
 # Config
 # ---------------------------------------------------------------------------
 
-DEFAULT_HOST = "10.3.6.100"
-DEFAULT_USER = "root"
-DEFAULT_PORT = 22
-APP_DIR      = "/opt/adtoolkit"
-SERVICE_NAME = "adtoolkit-backend"
+DEFAULT_HOST  = "10.3.6.100"
+DEFAULT_USER  = "user"
+DEFAULT_PASS  = "DefaultP4ss"
+DEFAULT_PORT  = 22
+APP_DIR       = "/opt/adtoolkit"
+SERVICE_NAME  = "adtoolkit-backend"
 
 # Directories to sync (local relative path -> remote absolute path)
 SYNC_DIRS = [
@@ -135,7 +136,8 @@ def run_remote(ssh, cmd: str, desc: str = "", sudo_pass: str = "") -> tuple[int,
     """Execute a remote command, return (exit_code, stdout+stderr)."""
     if sudo_pass and "sudo" in cmd:
         # pipe password to sudo -S
-        cmd = f"echo '{sudo_pass}' | sudo -S sh -c '{cmd.replace(\"sudo \", \"\")}'"
+        stripped = cmd.replace("sudo ", "")
+        cmd = f"echo '{sudo_pass}' | sudo -S sh -c '{stripped}'"
 
     stdin, stdout, stderr = ssh.exec_command(cmd, timeout=120)
     out = stdout.read().decode("utf-8", errors="replace").strip()
@@ -206,45 +208,60 @@ def deploy(args: argparse.Namespace) -> int:
         return 1
 
     sftp   = ssh.open_sftp()
-    sudo_p = args.sudo_password or ""
+    sudo_p = args.sudo_password or args.password or ""
+    REMOTE_TMP = "/tmp/adt-backend-deploy"
 
-    # Step 2: Upload files
+    # Step 2: Upload to /tmp first (user has write permission there)
     total_ok = 0
     total_skip = 0
-    log(f"\n[2/4] Uploading files...")
-    for local_rel, remote_abs in SYNC_DIRS:
+    log(f"\n[2/4] Uploading files to {REMOTE_TMP}/ ...")
+    # Clean tmp dir
+    run_remote(ssh, f"rm -rf {REMOTE_TMP} && mkdir -p {REMOTE_TMP}")
+
+    for local_rel, _remote_abs in SYNC_DIRS:
         local_path = project_root / local_rel
         if not local_path.is_dir():
             error(f"Local directory not found: {local_path}")
             sftp.close()
             ssh.close()
             return 1
-        info(f"Syncing {local_rel}/ -> {remote_abs}/")
-        f_ok, f_skip = _upload_dir(sftp, local_path, remote_abs)
+        remote_tmp_sub = f"{REMOTE_TMP}/{local_rel}"
+        info(f"Uploading {local_rel}/ -> {remote_tmp_sub}/")
+        f_ok, f_skip = _upload_dir(sftp, local_path, remote_tmp_sub)
         total_ok   += f_ok
         total_skip += f_skip
-        ok(f"{local_rel}: {f_ok} files uploaded, {f_skip} skipped")
+        ok(f"{local_rel}: {f_ok} files, {f_skip} skipped")
 
     sftp.close()
 
-    # Step 3: pip install
+    # Move from /tmp to final location with sudo
+    log(f"\n[2b/4] Installing files to {APP_DIR}/ (sudo cp) ...")
+    for local_rel, remote_abs in SYNC_DIRS:
+        cp_cmd = (
+            f"echo '{sudo_p}' | sudo -S cp -r {REMOTE_TMP}/{local_rel}/. {remote_abs}/ && "
+            f"echo '{sudo_p}' | sudo -S chown -R adtoolkit:adtoolkit {remote_abs}/"
+        )
+        rc, _ = run_remote(ssh, cp_cmd, f"installed {local_rel}/")
+        if rc != 0:
+            error(f"Failed to install {local_rel}")
+
+    # Cleanup tmp
+    run_remote(ssh, f"rm -rf {REMOTE_TMP}")
+
+    # Step 3: pip install (as adtoolkit user via sudo)
     log(f"\n[3/4] Installing Python dependencies...")
     pip_cmd = (
-        f"cd {APP_DIR} && "
-        f"./venv/bin/pip install -q -r {APP_DIR}/backend/requirements.txt"
+        f"echo '{sudo_p}' | sudo -S -u adtoolkit "
+        f"{APP_DIR}/venv/bin/pip install -q -r {APP_DIR}/backend/requirements.txt"
     )
     rc, _ = run_remote(ssh, pip_cmd, "pip install -r requirements.txt")
     if rc != 0:
         error("pip install failed — check requirements.txt")
 
-    # Step 4: Restart service
+    # Step 4: Restart service (sudo required)
     log(f"\n[4/4] Restarting {SERVICE_NAME}...")
-    rc, out = run_remote(
-        ssh,
-        f"systemctl restart {SERVICE_NAME}",
-        f"{SERVICE_NAME} restarted",
-        sudo_pass=sudo_p,
-    )
+    restart_cmd = f"echo '{sudo_p}' | sudo -S systemctl restart {SERVICE_NAME}"
+    rc, out = run_remote(ssh, restart_cmd, f"{SERVICE_NAME} restarted")
     if rc != 0:
         error(f"Failed to restart {SERVICE_NAME}")
         # Show recent logs
@@ -288,9 +305,9 @@ def main() -> None:
     parser.add_argument("--port",    type=int, default=DEFAULT_PORT, help=f"SSH port (default: {DEFAULT_PORT})")
     parser.add_argument("--user",    default=DEFAULT_USER, help=f"SSH user (default: {DEFAULT_USER})")
     parser.add_argument("--key-file", dest="key_file", default=None, help="Path to SSH private key")
-    parser.add_argument("--password", default=None, help="SSH password (if no key)")
-    parser.add_argument("--sudo-password", dest="sudo_password", default=None,
-                        help="sudo password for systemctl restart (if not root)")
+    parser.add_argument("--password", default=DEFAULT_PASS, help=f"SSH password (default: {DEFAULT_PASS})")
+    parser.add_argument("--sudo-password", dest="sudo_password", default=DEFAULT_PASS,
+                        help="sudo password for systemctl restart (default: same as --password)")
     args = parser.parse_args()
 
     sys.exit(deploy(args))
