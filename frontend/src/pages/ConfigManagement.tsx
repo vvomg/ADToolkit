@@ -723,6 +723,22 @@ const diffKindMeta = {
 // Статический список для DiffTab (fallback если live-модули недоступны)
 const FALLBACK_MODULES = ["Cluster", "CMD", "SMTP", "IMAP", "POP3", "WebAccess", "AntiSpam", "Antivirus"];
 
+// Единая функция раскраски строк Ansible-вывода (используется в DiffTab, HistoryTab, PlaybooksTab)
+function ansibleLineColor(line: string | undefined): string {
+  if (!line) return "text-overlay1";
+  if (line.includes("PLAY RECAP"))    return "text-mauve font-semibold";
+  if (line.includes("PLAY ["))        return "text-blue";
+  if (line.includes("TASK ["))        return "text-subtext";
+  if (line.startsWith("ok:"))         return "text-green";
+  if (line.startsWith("changed:"))    return "text-yellow";
+  if (line.startsWith("failed:"))     return "text-red";
+  if (line.startsWith("fatal:"))      return "text-red";
+  if (line.includes("[EXIT 0]"))      return "text-green font-semibold";
+  if (line.includes("[EXIT"))         return "text-red font-semibold";
+  if (line.includes("unreachable=0")) return "text-teal";
+  return "text-overlay1";
+}
+
 function DiffTab({ node, creds }: { node: MonitorNodeInfo; creds: CmdCreds }) {
   const [module,   setModule]   = useState("Cluster");
   const [entries,  setEntries]  = useState<DiffEntry[]>([]);
@@ -775,10 +791,12 @@ function DiffTab({ node, creds }: { node: MonitorNodeInfo; creds: CmdCreds }) {
     setApplyRunning(true);
     setApplyExitOk(null);
     setApplyLines([`[${new Date().toLocaleTimeString("ru")}] Генерация + применение конфига → ${node.ip}...`, ""]);
+    // Объекты доменов не применимы для пофайлового diff-apply
+    const APPLY_INCLUDE_OBJECTS = false as const;
     applyAbortRef.current = configApi.ansible.streamApplyV2(
       [node.ip],
       "full",
-      false,
+      APPLY_INCLUDE_OBJECTS,
       (line) => setApplyLines((prev) => [...prev, line]),
       (ok)   => { setApplyRunning(false); setApplyExitOk(ok); },
     );
@@ -790,20 +808,6 @@ function DiffTab({ node, creds }: { node: MonitorNodeInfo; creds: CmdCreds }) {
     changed: entries.filter((e) => e.kind === "changed").length,
     added:   entries.filter((e) => e.kind === "added").length,
     removed: entries.filter((e) => e.kind === "removed").length,
-  };
-
-  const lineColor = (line: string | undefined): string => {
-    if (!line) return "text-overlay1";
-    if (line.includes("PLAY RECAP"))   return "text-mauve font-semibold";
-    if (line.includes("PLAY ["))       return "text-blue";
-    if (line.includes("TASK ["))       return "text-subtext";
-    if (line.startsWith("ok:"))        return "text-green";
-    if (line.startsWith("changed:"))   return "text-yellow";
-    if (line.startsWith("failed:"))    return "text-red";
-    if (line.startsWith("fatal:"))     return "text-red";
-    if (line.includes("[EXIT 0]"))     return "text-green font-semibold";
-    if (line.includes("[EXIT"))        return "text-red font-semibold";
-    return "text-overlay1";
   };
 
   return (
@@ -913,7 +917,7 @@ function DiffTab({ node, creds }: { node: MonitorNodeInfo; creds: CmdCreds }) {
           </div>
           <pre ref={applyTermRef} className="font-mono text-[11px] h-56 overflow-y-auto p-4 leading-relaxed">
             {applyLines.map((line, i) => (
-              <div key={i} className={lineColor(line)}>{line || " "}</div>
+              <div key={i} className={ansibleLineColor(line)}>{line || " "}</div>
             ))}
           </pre>
         </div>
@@ -939,11 +943,15 @@ function HistoryTab({ node }: { node: MonitorNodeInfo }) {
   const [loadingTags, setLoadingTags] = useState(true);
 
   // Tag rollback stream
-  const [tagRbRunning,  setTagRbRunning]  = useState<string | null>(null); // current tag being rolled back
+  const [tagRbRunning,  setTagRbRunning]  = useState<string | null>(null); // текущий откатываемый тег
+  const [tagRbCurrent,  setTagRbCurrent]  = useState<string | null>(null); // тег чей вывод сейчас в терминале
   const [tagRbLines,    setTagRbLines]    = useState<string[]>([]);
   const [tagRbExitOk,   setTagRbExitOk]  = useState<boolean | null>(null);
   const tagRbTermRef                      = useRef<HTMLPreElement>(null);
   const tagRbAbortRef                     = useRef<AbortController | null>(null);
+
+  // Ключ для принудительного перезапроса тегов
+  const [tagsKey, setTagsKey] = useState(0);
 
   useEffect(() => {
     setLoadingLog(true);
@@ -951,13 +959,15 @@ function HistoryTab({ node }: { node: MonitorNodeInfo }) {
       .then(setCommits)
       .catch((e) => setError(String(e)))
       .finally(() => setLoadingLog(false));
+  }, []);
 
+  useEffect(() => {
     setLoadingTags(true);
     configApi.git.tags()
       .then(setTags)
       .catch(() => {})
       .finally(() => setLoadingTags(false));
-  }, []);
+  }, [tagsKey]);
 
   useEffect(() => {
     if (tagRbTermRef.current) tagRbTermRef.current.scrollTop = tagRbTermRef.current.scrollHeight;
@@ -997,6 +1007,7 @@ function HistoryTab({ node }: { node: MonitorNodeInfo }) {
     if (tagRbRunning) return;
     tagRbAbortRef.current?.abort();
     setTagRbRunning(tag);
+    setTagRbCurrent(tag);
     setTagRbExitOk(null);
     const modeLabel = mode === "yaml_only" ? "YAML only" : "YAML + Apply";
     setTagRbLines([`[${new Date().toLocaleTimeString("ru")}] Откат к тегу ${tag} (${modeLabel}) → ${node.ip}...`, ""]);
@@ -1009,20 +1020,6 @@ function HistoryTab({ node }: { node: MonitorNodeInfo }) {
     );
   };
 
-  const lineColor = (line: string | undefined): string => {
-    if (!line) return "text-overlay1";
-    if (line.includes("PLAY RECAP"))   return "text-mauve font-semibold";
-    if (line.includes("PLAY ["))       return "text-blue";
-    if (line.includes("TASK ["))       return "text-subtext";
-    if (line.startsWith("ok:"))        return "text-green";
-    if (line.startsWith("changed:"))   return "text-yellow";
-    if (line.startsWith("failed:"))    return "text-red";
-    if (line.startsWith("fatal:"))     return "text-red";
-    if (line.includes("[EXIT 0]"))     return "text-green font-semibold";
-    if (line.includes("[EXIT"))        return "text-red font-semibold";
-    return "text-overlay1";
-  };
-
   return (
     <div className="p-5 space-y-4">
       {error && <ErrMsg msg={error} />}
@@ -1032,7 +1029,21 @@ function HistoryTab({ node }: { node: MonitorNodeInfo }) {
         <div className="px-4 py-2.5 border-b border-surface1 flex items-center gap-2">
           <RotateCcw size={13} className="text-overlay0" />
           <span className="text-xs font-medium text-subtext">Снимки конфигурации (git tags)</span>
-          {loadingTags && <Loader2 size={11} className="animate-spin text-overlay0 ml-auto" />}
+          <span className="text-[10px] text-yellow ml-1 flex items-center gap-1">
+            <AlertTriangle size={9} />
+            Откат применяется только к <span className="font-mono">{node.ip}</span>
+          </span>
+          <div className="ml-auto flex items-center gap-1.5">
+            {loadingTags && <Loader2 size={11} className="animate-spin text-overlay0" />}
+            <button
+              onClick={() => setTagsKey((k) => k + 1)}
+              disabled={loadingTags}
+              title="Обновить список тегов"
+              className="text-overlay0 hover:text-text disabled:opacity-40 transition-colors"
+            >
+              <RefreshCw size={11} />
+            </button>
+          </div>
         </div>
 
         {!loadingTags && tags.length === 0 && (
@@ -1086,14 +1097,18 @@ function HistoryTab({ node }: { node: MonitorNodeInfo }) {
                 "bg-overlay0"
               }`} />
               <span className="text-xs font-mono text-subtext">
-                {tagRbRunning ? `Откат ${tagRbRunning}...` :
-                 tagRbExitOk === true ? "Откат завершён успешно" :
-                 tagRbExitOk === false ? "Откат завершён с ошибкой" : "Вывод"}
+                {tagRbRunning
+                  ? `Откат ${tagRbCurrent}...`
+                  : tagRbExitOk === true
+                    ? `Откат ${tagRbCurrent} завершён успешно`
+                    : tagRbExitOk === false
+                      ? `Откат ${tagRbCurrent} завершён с ошибкой`
+                      : "Вывод"}
               </span>
             </div>
             <pre ref={tagRbTermRef} className="font-mono text-[11px] h-44 overflow-y-auto p-4 leading-relaxed bg-mantle/50">
               {tagRbLines.map((line, i) => (
-                <div key={i} className={lineColor(line)}>{line || " "}</div>
+                <div key={i} className={ansibleLineColor(line)}>{line || " "}</div>
               ))}
             </pre>
           </>
@@ -1263,23 +1278,10 @@ function PlaybooksTab({ node }: { node: MonitorNodeInfo }) {
     if (key === "dump") {
       abortRef.current = configApi.ansible.streamDumpV2(hosts, includeObjects, undefined, onLine, onDone);
     } else {
+      // v1: применяет сохранённый YAML из config-store/ напрямую (08-config-apply.yml)
+      // v2 (DiffTab): генерирует плейбук из live-diff и применяет — другой flow
       abortRef.current = configApi.ansible.streamApply(hosts, onLine, onDone);
     }
-  };
-
-  const lineColor = (line: string | undefined): string => {
-    if (!line) return "text-overlay1";
-    if (line.includes("PLAY RECAP"))    return "text-mauve font-semibold";
-    if (line.includes("PLAY ["))        return "text-blue";
-    if (line.includes("TASK ["))        return "text-subtext";
-    if (line.startsWith("ok:"))         return "text-green";
-    if (line.startsWith("changed:"))    return "text-yellow";
-    if (line.startsWith("failed:"))     return "text-red";
-    if (line.startsWith("fatal:"))      return "text-red";
-    if (line.includes("[EXIT 0]"))      return "text-green font-semibold";
-    if (line.includes("[EXIT"))         return "text-red font-semibold";
-    if (line.includes("unreachable=0")) return "text-teal";
-    return "text-overlay1";
   };
 
   return (
@@ -1353,7 +1355,7 @@ function PlaybooksTab({ node }: { node: MonitorNodeInfo }) {
             className="font-mono text-[11px] h-72 overflow-y-auto p-4 leading-relaxed"
           >
             {lines.map((line, i) => (
-              <div key={i} className={lineColor(line)}>{line || " "}</div>
+              <div key={i} className={ansibleLineColor(line)}>{line || " "}</div>
             ))}
           </pre>
         </div>

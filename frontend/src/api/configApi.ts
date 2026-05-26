@@ -361,7 +361,7 @@ export const configApi = {
 
     streamApplyV2(
       hosts: string[],
-      mode: string,
+      mode: "full" | "diff",
       includeObjects: boolean,
       onLine: (line: string) => void,
       onDone: (ok: boolean) => void,
