@@ -1,0 +1,7 @@
+# organization.yml
+# Ресурс AWX: Организация IVA Mail
+# Применяется через: awx.awx.organization
+
+---
+- name: IVA Mail
+  description: "Автоматизация развёртывания IVA Mail кластера"

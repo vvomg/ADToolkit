@@ -1,0 +1,448 @@
+---
+# playbooks/10-awx-setup.yml
+# Главный плейбук для развёртывания и конфигурирования AWX на контроллере (10.3.6.100)
+#
+# Использование:
+#   ansible-playbook playbooks/10-awx-setup.yml
+#
+# Требования:
+#   - Controller host accessible via SSH
+#   - Docker и Docker Compose предварительно установлены (или запустить роль docker_setup)
+#   - Портов 8080/8443 свободны
+#   - Минимум 30 GB свободного места на диске
+#   - Минимум 4 CPU и 8 GB RAM (16 GB рекомендуется)
+#
+# Переменные (установить в group_vars или extra_vars):
+#   - awx_admin_password: пароль для admin пользователя (ОБЯЗАТЕЛЬНО)
+#   - awx_db_password: пароль для PostgreSQL (ОБЯЗАТЕЛЬНО)
+#   - awx_version: версия AWX (по умолчанию 23.9.0)
+#   - awx_project_path: путь проекта на контроллере (по умолчанию /opt/iva-mail-ansible)
+
+- name: "Play 1: Установить Docker на контроллере"
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  tags:
+    - docker
+    - setup
+
+  tasks:
+    - name: "Вывести информацию о системе"
+      debug:
+        msg:
+          - "OS: {{ ansible_os_family }} {{ ansible_distribution }} {{ ansible_distribution_version }}"
+          - "Kernel: {{ ansible_kernel }}"
+          - "Python: {{ ansible_python_version }}"
+          - "Hostname: {{ ansible_hostname }}"
+      tags:
+        - docker
+        - setup
+
+  roles:
+    - role: docker_setup
+      tags:
+        - docker
+        - setup
+
+---
+- name: "Play 2: Развернуть и сконфигурировать AWX"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags:
+    - awx
+    - deploy
+    - configure
+
+  # Переменные для Play 2
+  vars:
+    # Пути и конфигурация
+    awx_project_path: "/opt/iva-mail-ansible"
+    awx_compose_file: "docker-compose.awx.yml"
+    awx_env_file: ".env.awx"
+    awx_host: "http://localhost:8080"
+    awx_api_endpoint: "/api/v2/"
+    awx_api_ping: "/api/v2/ping/"
+
+    # Версия AWX (переопределяется в group_vars или extra_vars)
+    awx_version: "23.9.0"
+    awx_admin_user: "admin"
+
+    # Таймауты
+    postgres_wait_timeout: 120
+    postgres_wait_delay: 5
+    awx_web_wait_timeout: 180
+    awx_web_wait_delay: 10
+    awx_task_wait_timeout: 120
+    awx_task_wait_delay: 5
+
+  tasks:
+
+    # =========================================================================
+    # 1. Проверить и создать директорию проекта
+    # =========================================================================
+    - name: "Убедиться что директория проекта существует"
+      file:
+        path: "{{ awx_project_path }}"
+        state: directory
+        mode: "0755"
+      tags:
+        - awx
+        - deploy
+        - filesystem
+
+    # =========================================================================
+    # 2. Проверить наличие необходимых файлов
+    # =========================================================================
+    - name: "Проверить наличие docker-compose.awx.yml"
+      stat:
+        path: "{{ awx_project_path }}/{{ awx_compose_file }}"
+      register: compose_file_stat
+      tags:
+        - awx
+        - deploy
+        - validation
+
+    - name: "Остановиться если docker-compose.awx.yml не найден"
+      fail:
+        msg: "Файл {{ awx_project_path }}/{{ awx_compose_file }} не найден. Убедитесь что проект корректно развёрнут."
+      when: not compose_file_stat.stat.exists
+      tags:
+        - awx
+        - deploy
+        - validation
+
+    # =========================================================================
+    # 3. Подготовить файл окружения
+    # =========================================================================
+    - name: "Проверить наличие .env.awx"
+      stat:
+        path: "{{ awx_project_path }}/.env.awx"
+      register: env_file_stat
+      tags:
+        - awx
+        - deploy
+        - configuration
+
+    - name: "Скопировать .env.awx.example в .env.awx (если .env.awx не существует)"
+      copy:
+        src: "{{ awx_project_path }}/.env.awx.example"
+        dest: "{{ awx_project_path }}/.env.awx"
+        mode: "0600"
+        remote_src: true
+      when: not env_file_stat.stat.exists
+      tags:
+        - awx
+        - deploy
+        - configuration
+
+    # =========================================================================
+    # 4. Проверить что пароли установлены
+    # =========================================================================
+    - name: "Проверить что AWX_ADMIN_PASSWORD определён"
+      assert:
+        that:
+          - awx_admin_password is defined
+          - awx_admin_password | length > 0
+        fail_msg: "Переменная awx_admin_password не определена. Укажите пароль через extra_vars или group_vars."
+      tags:
+        - awx
+        - deploy
+        - validation
+
+    - name: "Проверить что AWX_DB_PASSWORD определён"
+      assert:
+        that:
+          - awx_db_password is defined
+          - awx_db_password | length > 0
+        fail_msg: "Переменная awx_db_password не определена. Укажите пароль через extra_vars или group_vars."
+      tags:
+        - awx
+        - deploy
+        - validation
+
+    # =========================================================================
+    # 5. Установить пароли в .env.awx
+    # =========================================================================
+    - name: "Установить AWX_ADMIN_PASSWORD в .env.awx"
+      lineinfile:
+        path: "{{ awx_project_path }}/.env.awx"
+        regexp: "^AWX_ADMIN_PASSWORD="
+        line: "AWX_ADMIN_PASSWORD={{ awx_admin_password }}"
+        state: present
+      tags:
+        - awx
+        - deploy
+        - configuration
+
+    - name: "Установить AWX_DB_PASSWORD в .env.awx"
+      lineinfile:
+        path: "{{ awx_project_path }}/.env.awx"
+        regexp: "^AWX_DB_PASSWORD="
+        line: "AWX_DB_PASSWORD={{ awx_db_password }}"
+        state: present
+      tags:
+        - awx
+        - deploy
+        - configuration
+
+    - name: "Установить AWX_VERSION в .env.awx"
+      lineinfile:
+        path: "{{ awx_project_path }}/.env.awx"
+        regexp: "^AWX_VERSION="
+        line: "AWX_VERSION={{ awx_version }}"
+        state: present
+      tags:
+        - awx
+        - deploy
+        - configuration
+
+    - name: "Установить правильные разрешения на .env.awx (только владелец может читать)"
+      file:
+        path: "{{ awx_project_path }}/.env.awx"
+        mode: "0600"
+      tags:
+        - awx
+        - deploy
+        - security
+
+    # =========================================================================
+    # 6. Загрузить Docker образы
+    # =========================================================================
+    - name: "Загрузить Docker образы AWX"
+      shell: |
+        cd {{ awx_project_path }}
+        docker compose --env-file {{ awx_env_file }} -f {{ awx_compose_file }} pull
+      register: docker_pull
+      changed_when: "'Downloaded' in docker_pull.stdout or 'Pulling' in docker_pull.stdout"
+      tags:
+        - awx
+        - deploy
+        - docker
+
+    - name: "Вывести результат загрузки образов"
+      debug:
+        msg: "{{ docker_pull.stdout_lines | last }}"
+      tags:
+        - awx
+        - deploy
+        - docker
+
+    # =========================================================================
+    # 7. Запустить контейнеры AWX
+    # =========================================================================
+    - name: "Запустить контейнеры AWX"
+      shell: |
+        cd {{ awx_project_path }}
+        docker compose --env-file {{ awx_env_file }} -f {{ awx_compose_file }} up -d
+      register: docker_up
+      tags:
+        - awx
+        - deploy
+        - docker
+
+    - name: "Вывести результат запуска контейнеров"
+      debug:
+        msg: "{{ docker_up.stdout }}"
+      tags:
+        - awx
+        - deploy
+        - docker
+
+    # =========================================================================
+    # 8. Ожидание инициализации PostgreSQL
+    # =========================================================================
+    - name: "Ожидание инициализации PostgreSQL (макс {{ postgres_wait_timeout }}сек)"
+      shell: |
+        cd {{ awx_project_path }}
+        for i in $(seq 1 $(({{ postgres_wait_timeout }} / {{ postgres_wait_delay }})))
+        do
+          if docker compose --env-file {{ awx_env_file }} -f {{ awx_compose_file }} exec -T awx_postgres pg_isready -U awx 2>/dev/null | grep -q "accepting"; then
+            echo "PostgreSQL готов"
+            exit 0
+          fi
+          echo "Попытка $i: PostgreSQL инициализируется..."
+          sleep {{ postgres_wait_delay }}
+        done
+        echo "Ошибка: PostgreSQL не инициализировался за {{ postgres_wait_timeout }}сек"
+        exit 1
+      register: postgres_wait
+      changed_when: false
+      tags:
+        - awx
+        - deploy
+        - health_check
+
+    - name: "Вывести результат проверки PostgreSQL"
+      debug:
+        msg: "{{ postgres_wait.stdout_lines | last }}"
+      tags:
+        - awx
+        - deploy
+        - health_check
+
+    # =========================================================================
+    # 9. Ожидание готовности AWX Web API
+    # =========================================================================
+    - name: "Ожидание готовности AWX Web API (макс {{ awx_web_wait_timeout }}сек)"
+      shell: |
+        for i in $(seq 1 $(({{ awx_web_wait_timeout }} / {{ awx_web_wait_delay }})))
+        do
+          if curl -s -f http://localhost:8080{{ awx_api_ping }} > /dev/null 2>&1; then
+            echo "AWX Web готов"
+            exit 0
+          fi
+          echo "Попытка $i: AWX Web инициализируется..."
+          sleep {{ awx_web_wait_delay }}
+        done
+        echo "Ошибка: AWX Web не инициализировался за {{ awx_web_wait_timeout }}сек"
+        exit 1
+      register: awx_web_wait
+      changed_when: false
+      tags:
+        - awx
+        - deploy
+        - health_check
+
+    - name: "Вывести результат проверки AWX Web"
+      debug:
+        msg: "{{ awx_web_wait.stdout_lines | last }}"
+      tags:
+        - awx
+        - deploy
+        - health_check
+
+    # =========================================================================
+    # 10. Ожидание готовности AWX Task
+    # =========================================================================
+    - name: "Ожидание готовности AWX Task (макс {{ awx_task_wait_timeout }}сек)"
+      shell: |
+        cd {{ awx_project_path }}
+        for i in $(seq 1 $(({{ awx_task_wait_timeout }} / {{ awx_task_wait_delay }})))
+        do
+          if docker compose --env-file {{ awx_env_file }} -f {{ awx_compose_file }} logs awx_task 2>/dev/null | grep -q "Ready"; then
+            echo "AWX Task готов"
+            exit 0
+          fi
+          echo "Попытка $i: AWX Task инициализируется..."
+          sleep {{ awx_task_wait_delay }}
+        done
+        echo "Внимание: статус AWX Task не подтверждён, но сервис может быть готов. Проверьте логи вручную."
+        exit 0
+      register: awx_task_wait
+      changed_when: false
+      tags:
+        - awx
+        - deploy
+        - health_check
+
+    - name: "Вывести результат проверки AWX Task"
+      debug:
+        msg: "{{ awx_task_wait.stdout_lines | last }}"
+      tags:
+        - awx
+        - deploy
+        - health_check
+
+    # =========================================================================
+    # 11. Проверить статус контейнеров
+    # =========================================================================
+    - name: "Проверить статус всех контейнеров"
+      shell: |
+        cd {{ awx_project_path }}
+        docker compose --env-file {{ awx_env_file }} -f {{ awx_compose_file }} ps
+      register: docker_ps
+      changed_when: false
+      tags:
+        - awx
+        - deploy
+        - health_check
+
+    - name: "Вывести статус контейнеров"
+      debug:
+        msg: "{{ docker_ps.stdout_lines }}"
+      tags:
+        - awx
+        - deploy
+        - health_check
+
+    # =========================================================================
+    # 12. Применить AWX конфигурацию (as-code)
+    # =========================================================================
+    - name: "Применить AWX конфигурацию из awx/as-code/"
+      shell: |
+        cd {{ awx_project_path }}
+        export AWX_HOST="{{ awx_host }}"
+        export AWX_USERNAME="{{ awx_admin_user }}"
+        export AWX_PASSWORD="{{ awx_admin_password }}"
+
+        # Проверить наличие применить плейбука
+        if [ -f "awx/as-code/apply-awx-config.yml" ]; then
+          echo "Применение конфигурации AWX..."
+          ansible-playbook awx/as-code/apply-awx-config.yml
+        else
+          echo "Внимание: awx/as-code/apply-awx-config.yml не найден"
+          exit 1
+        fi
+      register: awx_config_apply
+      ignore_errors: true
+      tags:
+        - awx
+        - deploy
+        - configure
+
+    - name: "Вывести результат применения конфигурации"
+      debug:
+        msg: "{{ awx_config_apply.stdout_lines | default(['Конфигурация применена']) }}"
+      tags:
+        - awx
+        - deploy
+        - configure
+
+    # =========================================================================
+    # 13. Вывести итоговую информацию о развёртывании
+    # =========================================================================
+    - name: "Вывести итоговую информацию о развёртывании"
+      debug:
+        msg:
+          - "========================================================================="
+          - "AWX успешно развёрнут на контроллере (10.3.6.100)"
+          - "========================================================================="
+          - ""
+          - "ДОСТУП К AWX:"
+          - "  URL Web UI: http://10.3.6.100:8080"
+          - "  Пользователь: admin"
+          - "  Пароль: {{ awx_admin_password | default('см. .env.awx') }}"
+          - ""
+          - "API ENDPOINT:"
+          - "  {{ awx_host }}{{ awx_api_endpoint }}"
+          - ""
+          - "КОНТЕЙНЕРЫ:"
+          - "  Redis: awx_redis (порт 6379, внутренний)"
+          - "  PostgreSQL: awx_postgres (порт 5432, внутренний)"
+          - "  Web UI: awx_web (порты 8080, 8443)"
+          - "  Task Worker: awx_task"
+          - ""
+          - "СЛЕДУЮЩИЕ ШАГИ:"
+          - "  1. Откройте http://10.3.6.100:8080 в браузере"
+          - "  2. Войдите с учётными данными admin / пароль"
+          - "  3. Измените пароль администратора (Administration > Users > admin > Edit)"
+          - "  4. Создайте учётные данные (см. docs/AWX-CREDENTIALS-SETUP.md)"
+          - "  5. Добавьте инвентарь и проекты"
+          - "  6. Создайте шаблоны заданий для развёртывания IVA Mail"
+          - ""
+          - "УПРАВЛЕНИЕ КОНТЕЙНЕРАМИ:"
+          - "  Просмотр логов: docker compose -f {{ awx_compose_file }} logs -f"
+          - "  Остановка: docker compose -f {{ awx_compose_file }} down"
+          - "  Перезапуск: docker compose -f {{ awx_compose_file }} restart"
+          - ""
+          - "ДОКУМЕНТАЦИЯ:"
+          - "  Развёртывание: docs/DEPLOYMENT-AWX.md"
+          - "  Учётные данные: docs/AWX-CREDENTIALS-SETUP.md"
+          - "  Официальная: https://ansible-awx-oper-guide.readthedocs.io/"
+          - "========================================================================="
+      tags:
+        - awx
+        - deploy
+        - summary
+

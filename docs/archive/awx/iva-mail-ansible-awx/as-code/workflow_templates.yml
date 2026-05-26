@@ -1,0 +1,68 @@
+# workflow_templates.yml
+# AWX Workflow Job Templates для IVA Mail
+# Применяется через apply-awx-config.yml (awx.awx коллекция)
+
+---
+# ---------------------------------------------------------------------------
+# Workflow: IVA Mail Full Deployment
+# Полный цикл развёртывания кластера IVA Mail включая лицензирование.
+# Поток:
+#   02-Backends-Install → 02-License-Request → [APPROVAL] → 02-License-Install-And-Restart
+# ---------------------------------------------------------------------------
+- name: "IVA Mail Full Deployment"
+  description: >
+    Полный цикл развёртывания кластера IVA Mail:
+    установка → запрос лицензии → одобрение → установка лицензии и перезапуск
+  organization: "IVA Mail"
+  survey_enabled: false
+  ask_variables_on_launch: true
+  state: present
+
+# ---------------------------------------------------------------------------
+# workflow_nodes — список узлов воркфлоу
+# Применяется отдельно через awx.awx.workflow_job_template_node в apply-awx-config.yml
+# Порядок узлов важен: каждый узел ссылается на success_nodes следующего.
+# ---------------------------------------------------------------------------
+workflow_nodes:
+  - identifier: "node-backends-install"
+    workflow_job_template: "IVA Mail Full Deployment"
+    unified_job_template: "02-Backends-Install"
+    organization: "IVA Mail"
+    success_nodes:
+      - "node-license-request"
+    failure_nodes: []
+    always_nodes: []
+
+  - identifier: "node-license-request"
+    workflow_job_template: "IVA Mail Full Deployment"
+    unified_job_template: "02-License-Request"
+    organization: "IVA Mail"
+    success_nodes:
+      - "node-approval"
+    failure_nodes: []
+    always_nodes: []
+
+  - identifier: "node-approval"
+    workflow_job_template: "IVA Mail Full Deployment"
+    # Approval Node — человек одобряет после получения лицензии от вендора
+    approval_node:
+      name: "Одобрить установку лицензии"
+      description: >
+        1. Скачайте файл запроса из /opt/ivamail/license_requests/ на контроллере.
+        2. Отправьте файл вендору IVA Mail.
+        3. Получив лицензионный .txt файл, разместите его на контроллере AWX.
+        4. Укажите путь к файлу в переменной license_file_path.
+        5. Нажмите Approve для продолжения развёртывания.
+      timeout: 86400  # 24 часа
+    success_nodes:
+      - "node-license-install"
+    failure_nodes: []
+    always_nodes: []
+
+  - identifier: "node-license-install"
+    workflow_job_template: "IVA Mail Full Deployment"
+    unified_job_template: "02-License-Install-And-Restart"
+    organization: "IVA Mail"
+    success_nodes: []
+    failure_nodes: []
+    always_nodes: []

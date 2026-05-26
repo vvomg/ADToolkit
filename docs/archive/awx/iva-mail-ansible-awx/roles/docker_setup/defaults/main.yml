@@ -1,0 +1,24 @@
+---
+# roles/docker_setup/defaults/main.yml
+# Переменные по умолчанию для установки Docker и Docker Compose
+
+# URL репозитория Docker (для Ubuntu)
+docker_repo_url: "https://download.docker.com/linux/ubuntu"
+
+# Список пакетов для установки
+# docker.io — Docker движок
+# docker-compose-plugin — Docker Compose (встроен в docker-ce пакет)
+docker_packages:
+  - docker.io
+  - docker-compose-plugin
+
+# Желаемое состояние Docker демона
+docker_service_state: started
+
+# Включить автоматический запуск Docker при загрузке системы
+docker_service_enabled: true
+
+# Пользователи для добавления в docker группу
+# По умолчанию только root (хотя root уже имеет доступ)
+docker_group_members:
+  - root

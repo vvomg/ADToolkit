@@ -1,0 +1,15 @@
+# pg_hba.conf — сгенерировано IVA Mail Deploy Toolkit
+# TYPE  DATABASE        USER            ADDRESS                 METHOD
+
+# Локальный доступ
+local   all             all                                     peer
+host    all             all             127.0.0.1/32            md5
+host    all             all             ::1/128                 md5
+
+# Доступ для IVA Mail бэкендов
+{% for backend in backends %}
+host    all             {{ db_user }}   {{ backend.ip }}/32     md5
+{% endfor %}
+
+# Репликация (если потребуется в будущем)
+# host  replication     replicator      0.0.0.0/0               md5

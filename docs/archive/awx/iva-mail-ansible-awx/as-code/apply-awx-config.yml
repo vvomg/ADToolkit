@@ -1,0 +1,287 @@
+# apply-awx-config.yml
+# Главный плейбук для применения всех AWX-ресурсов IVA Mail
+#
+# Использование:
+#   export AWX_HOST=http://10.3.6.100:8080
+#   export AWX_USERNAME=admin
+#   export AWX_PASSWORD=<пароль>
+#   ansible-playbook awx/as-code/apply-awx-config.yml
+#
+# Требования:
+#   ansible-galaxy collection install awx.awx
+#
+# Порядок применения:
+#   1. Организация
+#   2. Типы учётных данных
+#   3. Проект
+#   4. Инвентарь
+#   5. Шаблоны задач (с survey_spec)
+#   6. Workflow Job Template + узлы (Итерация 3)
+
+---
+- name: "Применить AWX as-Code конфигурацию для IVA Mail"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  # Переменные подключения к AWX берутся из окружения
+  vars:
+    awx_host: "{{ lookup('env', 'AWX_HOST') | default('http://10.3.6.100:8080', true) }}"
+    awx_username: "{{ lookup('env', 'AWX_USERNAME') | default('admin', true) }}"
+    # Пароль ТОЛЬКО из переменной окружения — не хардкодить
+    awx_password: "{{ lookup('env', 'AWX_PASSWORD') }}"
+    awx_validate_certs: false
+
+    # Загружаем survey_spec из отдельного файла
+    survey_data: "{{ lookup('file', 'survey_spec.yml') | from_yaml }}"
+
+  pre_tasks:
+    - name: "Проверить, что AWX_PASSWORD задан"
+      ansible.builtin.assert:
+        that:
+          - awx_password | length > 0
+        fail_msg: >
+          Переменная окружения AWX_PASSWORD не задана.
+          Выполните: export AWX_PASSWORD=<ваш_пароль>
+
+  tasks:
+
+    # =========================================================================
+    # 1. Организация
+    # =========================================================================
+    - name: "Создать организацию IVA Mail"
+      awx.awx.organization:
+        controller_host: "{{ awx_host }}"
+        controller_username: "{{ awx_username }}"
+        controller_password: "{{ awx_password }}"
+        validate_certs: "{{ awx_validate_certs }}"
+        name: "{{ item.name }}"
+        description: "{{ item.description | default(omit) }}"
+        state: present
+      loop: "{{ lookup('file', 'organization.yml') | from_yaml }}"
+      no_log: false   # Имена организаций не секрет
+
+    # =========================================================================
+    # 2. Типы учётных данных
+    # =========================================================================
+    - name: "Создать пользовательские типы учётных данных"
+      awx.awx.credential_type:
+        controller_host: "{{ awx_host }}"
+        controller_username: "{{ awx_username }}"
+        controller_password: "{{ awx_password }}"
+        validate_certs: "{{ awx_validate_certs }}"
+        name: "{{ item.name }}"
+        description: "{{ item.description | default(omit) }}"
+        kind: "{{ item.kind }}"
+        inputs: "{{ item.inputs }}"
+        injectors: "{{ item.injectors }}"
+        state: present
+      loop: "{{ lookup('file', 'credential_types.yml') | from_yaml }}"
+      no_log: true   # injectors могут содержать шаблоны с именами секретных полей
+
+    # =========================================================================
+    # 3. Проект
+    # =========================================================================
+    - name: "Создать проект iva-mail-ansible"
+      awx.awx.project:
+        controller_host: "{{ awx_host }}"
+        controller_username: "{{ awx_username }}"
+        controller_password: "{{ awx_password }}"
+        validate_certs: "{{ awx_validate_certs }}"
+        name: "{{ item.name }}"
+        description: "{{ item.description | default(omit) }}"
+        organization: "{{ item.organization }}"
+        scm_type: "{{ item.scm_type }}"
+        scm_url: "{{ item.scm_url }}"
+        scm_branch: "{{ item.scm_branch | default('main') }}"
+        scm_clean: "{{ item.scm_clean | default(true) }}"
+        scm_delete_on_update: "{{ item.scm_delete_on_update | default(false) }}"
+        update_on_launch: "{{ item.update_on_launch | default(true) }}"
+        state: present
+      loop: "{{ lookup('file', 'project.yml') | from_yaml }}"
+      no_log: false
+
+    # =========================================================================
+    # 4. Инвентарь
+    # =========================================================================
+    - name: "Создать инвентарь IVA Mail Dynamic"
+      awx.awx.inventory:
+        controller_host: "{{ awx_host }}"
+        controller_username: "{{ awx_username }}"
+        controller_password: "{{ awx_password }}"
+        validate_certs: "{{ awx_validate_certs }}"
+        name: "{{ item.name }}"
+        description: "{{ item.description | default(omit) }}"
+        organization: "{{ item.organization }}"
+        state: present
+      loop: "{{ lookup('file', 'inventory.yml') | from_yaml }}"
+      no_log: false
+
+    # =========================================================================
+    # 5. Шаблоны задач
+    # =========================================================================
+    - name: "Создать шаблоны задач"
+      awx.awx.job_template:
+        controller_host: "{{ awx_host }}"
+        controller_username: "{{ awx_username }}"
+        controller_password: "{{ awx_password }}"
+        validate_certs: "{{ awx_validate_certs }}"
+        name: "{{ item.name }}"
+        description: "{{ item.description | default(omit) }}"
+        organization: "{{ item.organization }}"
+        project: "{{ item.project }}"
+        playbook: "{{ item.playbook }}"
+        inventory: "{{ item.inventory }}"
+        credentials: "{{ item.credentials | default([]) }}"
+        ask_variables_on_launch: "{{ item.ask_variables_on_launch | default(false) }}"
+        survey_enabled: "{{ item.survey_enabled | default(false) }}"
+        extra_vars: "{{ item.extra_vars | default({}) | to_json }}"
+        job_type: "{{ item.job_type | default('run') }}"
+        verbosity: "{{ item.verbosity | default(0) }}"
+        state: present
+      loop: "{{ lookup('file', 'job_templates.yml') | from_yaml }}"
+      no_log: false
+      register: jt_results
+
+    # =========================================================================
+    # 5a. Применить survey_spec к шаблону 00-Bootstrap
+    # =========================================================================
+    - name: "Применить survey_spec к шаблону 00-Bootstrap"
+      awx.awx.job_template:
+        controller_host: "{{ awx_host }}"
+        controller_username: "{{ awx_username }}"
+        controller_password: "{{ awx_password }}"
+        validate_certs: "{{ awx_validate_certs }}"
+        name: "00-Bootstrap"
+        organization: "IVA Mail"
+        survey_enabled: true
+        survey_spec: "{{ survey_data.survey_spec | to_json }}"
+        state: present
+      no_log: false
+
+    # =========================================================================
+    # 5b. Применить survey_spec к шаблону 01-Postgres-NFS
+    # =========================================================================
+    - name: "Применить survey_spec к шаблону 01-Postgres-NFS"
+      awx.awx.job_template:
+        controller_host: "{{ awx_host }}"
+        controller_username: "{{ awx_username }}"
+        controller_password: "{{ awx_password }}"
+        validate_certs: "{{ awx_validate_certs }}"
+        name: "01-Postgres-NFS"
+        organization: "IVA Mail"
+        survey_enabled: true
+        survey_spec: "{{ survey_data.survey_spec | to_json }}"
+        state: present
+      no_log: false
+
+    # =========================================================================
+    # 5c. Применить survey_spec к шаблону 02-License-Request
+    # =========================================================================
+    - name: "Применить survey_spec к шаблону 02-License-Request"
+      awx.awx.job_template:
+        controller_host: "{{ awx_host }}"
+        controller_username: "{{ awx_username }}"
+        controller_password: "{{ awx_password }}"
+        validate_certs: "{{ awx_validate_certs }}"
+        name: "02-License-Request"
+        organization: "IVA Mail"
+        survey_enabled: true
+        survey_spec: "{{ survey_data.survey_spec | to_json }}"
+        state: present
+      no_log: false
+
+    # =========================================================================
+    # 5d. Применить survey_spec к шаблону 02-License-Install-And-Restart
+    # =========================================================================
+    - name: "Применить survey_spec к шаблону 02-License-Install-And-Restart"
+      awx.awx.job_template:
+        controller_host: "{{ awx_host }}"
+        controller_username: "{{ awx_username }}"
+        controller_password: "{{ awx_password }}"
+        validate_certs: "{{ awx_validate_certs }}"
+        name: "02-License-Install-And-Restart"
+        organization: "IVA Mail"
+        survey_enabled: true
+        survey_spec: "{{ survey_data.survey_spec | to_json }}"
+        state: present
+      no_log: false
+
+    # =========================================================================
+    # 6. Workflow Job Templates (Итерация 3)
+    # =========================================================================
+    - name: Создать/обновить workflow job template "IVA Mail Full Deployment"
+      awx.awx.workflow_job_template:
+        name: "IVA Mail Full Deployment"
+        description: >
+          Полный цикл: установка → запрос лицензии → одобрение → установка лицензии
+        organization: "IVA Mail"
+        ask_variables_on_launch: true
+        state: present
+        controller_host: "{{ lookup('env', 'AWX_HOST') }}"
+        controller_username: "{{ lookup('env', 'AWX_USERNAME') }}"
+        controller_password: "{{ lookup('env', 'AWX_PASSWORD') }}"
+      no_log: true
+      tags: awx, workflow
+
+    # Применяем узлы воркфлоу последовательно (порядок важен — ноды ссылаются друг на друга)
+    - name: Создать узел 1 — 02-Backends-Install
+      awx.awx.workflow_job_template_node:
+        identifier: "node-backends-install"
+        workflow_job_template: "IVA Mail Full Deployment"
+        unified_job_template: "02-Backends-Install"
+        organization: "IVA Mail"
+        success_nodes: ["node-license-request"]
+        controller_host: "{{ lookup('env', 'AWX_HOST') }}"
+        controller_username: "{{ lookup('env', 'AWX_USERNAME') }}"
+        controller_password: "{{ lookup('env', 'AWX_PASSWORD') }}"
+        state: present
+      no_log: true
+      tags: awx, workflow
+
+    - name: Создать узел 2 — 02-License-Request
+      awx.awx.workflow_job_template_node:
+        identifier: "node-license-request"
+        workflow_job_template: "IVA Mail Full Deployment"
+        unified_job_template: "02-License-Request"
+        organization: "IVA Mail"
+        success_nodes: ["node-approval"]
+        controller_host: "{{ lookup('env', 'AWX_HOST') }}"
+        controller_username: "{{ lookup('env', 'AWX_USERNAME') }}"
+        controller_password: "{{ lookup('env', 'AWX_PASSWORD') }}"
+        state: present
+      no_log: true
+      tags: awx, workflow
+
+    - name: Создать узел 3 — Approval Node (ожидание лицензии)
+      awx.awx.workflow_job_template_node:
+        identifier: "node-approval"
+        workflow_job_template: "IVA Mail Full Deployment"
+        approval_node:
+          name: "Одобрить установку лицензии"
+          description: >
+            1. Скачайте запрос из /opt/ivamail/license_requests/.
+            2. Отправьте вендору, получите license.txt.
+            3. Разместите license.txt на контроллере.
+            4. Укажите путь в license_file_path и нажмите Approve.
+          timeout: 86400
+        success_nodes: ["node-license-install"]
+        controller_host: "{{ lookup('env', 'AWX_HOST') }}"
+        controller_username: "{{ lookup('env', 'AWX_USERNAME') }}"
+        controller_password: "{{ lookup('env', 'AWX_PASSWORD') }}"
+        state: present
+      no_log: true
+      tags: awx, workflow
+
+    - name: Создать узел 4 — 02-License-Install-And-Restart
+      awx.awx.workflow_job_template_node:
+        identifier: "node-license-install"
+        workflow_job_template: "IVA Mail Full Deployment"
+        unified_job_template: "02-License-Install-And-Restart"
+        organization: "IVA Mail"
+        controller_host: "{{ lookup('env', 'AWX_HOST') }}"
+        controller_username: "{{ lookup('env', 'AWX_USERNAME') }}"
+        controller_password: "{{ lookup('env', 'AWX_PASSWORD') }}"
+        state: present
+      no_log: true
+      tags: awx, workflow

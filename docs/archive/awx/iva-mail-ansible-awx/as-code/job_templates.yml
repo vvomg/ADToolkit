@@ -1,0 +1,179 @@
+# job_templates.yml
+# Ресурс AWX: Шаблоны задач для Итерации 1–3
+# Применяется через: awx.awx.job_template
+#
+# Шаблоны:
+#   00-Bootstrap                    — начальная настройка всех узлов кластера
+#   01-Postgres-NFS                 — развёртывание PostgreSQL и NFS на storage-узле (10.3.6.128)
+#   02-Backends-Install             — установка IVA Mail на бэкенды, DB setup, cluster config
+#   02-License-Request              — генерация запроса лицензии на be1 (Итерация 3)
+#   02-License-Install-And-Restart  — установка лицензии + последовательный перезапуск (Итерация 3)
+
+---
+
+# ---------------------------------------------------------------------------
+# Шаблон 1: 00-Bootstrap
+# Назначение: начальная настройка ОС и зависимостей на всех узлах кластера
+# Использует Survey для получения IP-адресов и параметров доставки пакета
+# ---------------------------------------------------------------------------
+- name: "00-Bootstrap"
+  description: "Начальная настройка всех узлов IVA Mail кластера"
+  organization: "IVA Mail"
+  project: "iva-mail-ansible"
+  playbook: "playbooks/00-bootstrap.yml"
+  inventory: "IVA Mail Dynamic"
+  credentials:
+    - "IVA Mail SSH Key"
+  ask_variables_on_launch: true
+  survey_enabled: true
+  # survey_spec подключается в apply-awx-config.yml из survey_spec.yml
+  extra_vars: {}
+  job_type: run
+  verbosity: 1
+  state: present
+
+# ---------------------------------------------------------------------------
+# Шаблон 2: 01-Postgres-NFS
+# Назначение: развёртывание PostgreSQL и экспорт NFS на storage-узле (10.3.6.128)
+# Использует PostgreSQL Admin credential для инициализации БД
+# ---------------------------------------------------------------------------
+- name: "01-Postgres-NFS"
+  description: "Развёртывание PostgreSQL и NFS на storage-узле (10.3.6.128)"
+  organization: "IVA Mail"
+  project: "iva-mail-ansible"
+  playbook: "playbooks/01-postgres-nfs.yml"
+  inventory: "IVA Mail Dynamic"
+  credentials:
+    - "IVA Mail SSH Key"
+    - "PostgreSQL Admin"
+  survey_enabled: true
+  ask_variables_on_launch: false
+  extra_vars: {}
+  job_type: run
+  verbosity: 1
+  state: present
+
+# ---------------------------------------------------------------------------
+# Шаблон 3: 02-Backends-Install
+# Назначение: установка IVA Mail на бэкенды, инициализация БД,
+# первый запуск и настройка кластера (BackendList, OwnAddress) через CMD
+# Итерация 2 — параллельная установка, последовательная лицензия — позже
+# ---------------------------------------------------------------------------
+- name: "02-Backends-Install"
+  description: "Установка IVA Mail на бэкенды, DB setup, cluster config через CMD"
+  organization: "IVA Mail"
+  project: "iva-mail-ansible"
+  playbook: "playbooks/02-backends-install.yml"
+  inventory: "IVA Mail Dynamic"
+  credentials:
+    - "IVA Mail SSH Key"
+    - "PostgreSQL Admin"
+    - "IVA Mail CMD"
+  survey_enabled: true
+  ask_variables_on_launch: false
+  extra_vars: {}
+  job_type: run
+  verbosity: 1
+  state: present
+
+# ---------------------------------------------------------------------------
+# Шаблон 4: 02-License-Request
+# Назначение: генерация запроса лицензии на be1, сохранение на контроллер
+# Итерация 3 — run_once на первом бэкенде, вывод в лог задания
+# ---------------------------------------------------------------------------
+- name: "02-License-Request"
+  description: "Генерация запроса лицензии IVA Mail (LicenseRequest на be1)"
+  organization: "IVA Mail"
+  project: "iva-mail-ansible"
+  playbook: "playbooks/02-license-request.yml"
+  inventory: "IVA Mail Dynamic"
+  credentials:
+    - "IVA Mail SSH Key"
+    - "IVA Mail CMD"
+  survey_enabled: true
+  ask_variables_on_launch: false
+  extra_vars: {}
+  job_type: run
+  verbosity: 1
+  state: present
+
+# ---------------------------------------------------------------------------
+# Шаблон 5: 02-License-Install-And-Restart
+# Назначение: установка лицензии на be1, последовательный перезапуск бэкендов
+# Итерация 3 — serial restart: be1 → be2 → ... (лицензия подтягивается автоматически)
+# ---------------------------------------------------------------------------
+- name: "02-License-Install-And-Restart"
+  description: "Установка лицензии + последовательный перезапуск бэкендов (serial: 1)"
+  organization: "IVA Mail"
+  project: "iva-mail-ansible"
+  playbook: "playbooks/02-license-install-and-restart.yml"
+  inventory: "IVA Mail Dynamic"
+  credentials:
+    - "IVA Mail SSH Key"
+    - "IVA Mail CMD"
+  survey_enabled: true
+  ask_variables_on_launch: false
+  extra_vars: {}
+  job_type: run
+  verbosity: 1
+  state: present
+
+# ---------------------------------------------------------------------------
+# Шаблон: 07-Config-Dump
+# Назначение: снимок конфигурации IVA Mail через CMD → JSON → git-репозиторий
+# ---------------------------------------------------------------------------
+- name: "07-Config-Dump"
+  description: "Снимок конфигурации IVA Mail (ModuleReadConfig) → git-репозиторий"
+  organization: "IVA Mail"
+  project: "iva-mail-ansible"
+  playbook: "playbooks/07-config-dump.yml"
+  inventory: "IVA Mail Dynamic"
+  credentials:
+    - "IVA Mail SSH Key"
+    - "IVA Mail CMD"
+  survey_enabled: true
+  ask_variables_on_launch: false
+  extra_vars: {}
+  job_type: run
+  verbosity: 1
+  state: present
+
+# ---------------------------------------------------------------------------
+# Шаблон: 08-Config-Apply
+# Назначение: применить конфигурацию IVA Mail из JSON-файлов через CMD
+# ---------------------------------------------------------------------------
+- name: "08-Config-Apply"
+  description: "Применить конфигурацию IVA Mail из JSON-файлов (ModuleUpdateConfig)"
+  organization: "IVA Mail"
+  project: "iva-mail-ansible"
+  playbook: "playbooks/08-config-apply.yml"
+  inventory: "IVA Mail Dynamic"
+  credentials:
+    - "IVA Mail SSH Key"
+    - "IVA Mail CMD"
+  survey_enabled: true
+  ask_variables_on_launch: false
+  extra_vars: {}
+  job_type: run
+  verbosity: 1
+  state: present
+
+# ---------------------------------------------------------------------------
+# Шаблон: 09-Config-Rollback
+# Назначение: откат конфигурации IVA Mail к git-тегу снимка + рестарт
+# ---------------------------------------------------------------------------
+- name: "09-Config-Rollback"
+  description: "Откат конфигурации IVA Mail к git-снимку + опциональный перезапуск"
+  organization: "IVA Mail"
+  project: "iva-mail-ansible"
+  playbook: "playbooks/09-config-rollback.yml"
+  inventory: "IVA Mail Dynamic"
+  credentials:
+    - "IVA Mail SSH Key"
+    - "IVA Mail CMD"
+  survey_enabled: true
+  ask_variables_on_launch: false
+  extra_vars: {}
+  job_type: run
+  verbosity: 1
+  state: present

@@ -1,0 +1,177 @@
+---
+# roles/docker_setup/tasks/main.yml
+# Установка Docker и Docker Compose на контроллер для AWX
+#
+# Требования:
+#   - Ubuntu 20.04 LTS или Ubuntu 22.04 LTS
+#   - root или sudo доступ
+#
+# Переменные:
+#   - docker_packages (список пакетов для установки)
+#   - docker_repo_url (URL репозитория Docker)
+#   - docker_service_state (desired state для сервиса)
+#   - docker_service_enabled (включить autostart)
+#   - docker_group_members (пользователи в docker группе)
+
+- name: "Проверить статус установки Docker"
+  command: docker --version
+  register: docker_check
+  changed_when: false
+  failed_when: false
+  tags:
+    - docker
+    - docker_setup
+
+- name: "Проверить статус установки Docker Compose"
+  command: docker compose version
+  register: docker_compose_check
+  changed_when: false
+  failed_when: false
+  tags:
+    - docker
+    - docker_setup
+
+- name: "Установить Docker (пропустить, если уже установлен)"
+  block:
+    - name: "Установить необходимые пакеты для управления репозиторием"
+      apt:
+        name:
+          - curl
+          - gpg
+          - lsb-release
+        state: present
+        update_cache: true
+      tags:
+        - docker
+        - docker_setup
+
+    - name: "Добавить GPG ключ Docker"
+      shell: |
+        curl -fsSL {{ docker_repo_url }}/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+      args:
+        creates: /usr/share/keyrings/docker-archive-keyring.gpg
+      tags:
+        - docker
+        - docker_setup
+
+    - name: "Добавить Docker репозиторий"
+      apt_repository:
+        repo: "deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] {{ docker_repo_url }}/ubuntu {{ ansible_lsb.codename }} stable"
+        state: present
+      tags:
+        - docker
+        - docker_setup
+
+    - name: "Обновить apt кэш после добавления репозитория"
+      apt:
+        update_cache: true
+      tags:
+        - docker
+        - docker_setup
+
+    - name: "Установить Docker пакеты"
+      apt:
+        name: "{{ docker_packages }}"
+        state: present
+      tags:
+        - docker
+        - docker_setup
+      register: docker_install
+
+    - name: "Включить Docker сервис"
+      service:
+        name: docker
+        state: "{{ docker_service_state }}"
+        enabled: "{{ docker_service_enabled }}"
+      tags:
+        - docker
+        - docker_setup
+
+    - name: "Дождаться инициализации Docker сокета"
+      wait_for:
+        path: /var/run/docker.sock
+        state: present
+        delay: 1
+        timeout: 30
+      tags:
+        - docker
+        - docker_setup
+
+    - name: "Добавить пользователей в docker группу"
+      user:
+        name: "{{ item }}"
+        groups: docker
+        append: true
+      loop: "{{ docker_group_members }}"
+      tags:
+        - docker
+        - docker_setup
+
+    - name: "Активировать группу docker для текущей сессии"
+      shell: "newgrp docker"
+      tags:
+        - docker
+        - docker_setup
+
+  when: docker_check.rc != 0 or docker_compose_check.rc != 0
+  tags:
+    - docker
+    - docker_setup
+
+- name: "Проверить установку Docker"
+  command: docker --version
+  register: docker_version
+  changed_when: false
+  tags:
+    - docker
+    - docker_setup
+
+- name: "Проверить установку Docker Compose"
+  command: docker compose version
+  register: docker_compose_version
+  changed_when: false
+  tags:
+    - docker
+    - docker_setup
+
+- name: "Вывести информацию об установленных версиях"
+  debug:
+    msg:
+      - "Docker версия: {{ docker_version.stdout }}"
+      - "Docker Compose версия: {{ docker_compose_version.stdout }}"
+  tags:
+    - docker
+    - docker_setup
+
+- name: "Проверить что Docker демон запущен"
+  service:
+    name: docker
+    state: started
+  tags:
+    - docker
+    - docker_setup
+
+- name: "Выполнить тестовый docker контейнер"
+  shell: "docker run --rm hello-world > /dev/null 2>&1"
+  register: docker_test
+  changed_when: false
+  ignore_errors: true
+  tags:
+    - docker
+    - docker_setup
+
+- name: "Вывести результат теста Docker"
+  debug:
+    msg: "Docker работает корректно (тест успешно выполнен)"
+  when: docker_test.rc == 0
+  tags:
+    - docker
+    - docker_setup
+
+- name: "Вывести предупреждение если тест Docker не пройден"
+  debug:
+    msg: "Внимание: тест Docker не пройден. Проверьте установку вручную."
+  when: docker_test.rc != 0
+  tags:
+    - docker
+    - docker_setup

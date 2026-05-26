@@ -1,0 +1,6 @@
+# /etc/exports — сгенерировано IVA Mail Deploy Toolkit
+# NFS экспорт для кластера IVA Mail
+
+{% for backend in backends %}
+{{ nfs_share_path }}    {{ backend.ip }}(rw,sync,no_subtree_check,no_root_squash)
+{% endfor %}

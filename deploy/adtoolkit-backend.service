@@ -1,0 +1,36 @@
+[Unit]
+Description=ADToolKit FastAPI Backend
+Documentation=https://github.com/your-org/adtoolkit
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=adtoolkit
+Group=adtoolkit
+WorkingDirectory=/opt/adtoolkit
+Environment=PYTHONPATH=/opt/adtoolkit
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/opt/adtoolkit/.env
+
+ExecStart=/opt/adtoolkit/venv/bin/uvicorn backend.main:app \
+    --host 127.0.0.1 \
+    --port 8000 \
+    --workers 1 \
+    --log-level info
+
+Restart=always
+RestartSec=5
+TimeoutStartSec=30
+TimeoutStopSec=10
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=adtoolkit-backend
+
+# Security hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

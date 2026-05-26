@@ -1,0 +1,19 @@
+# inventory.yml
+# Ресурс AWX: Инвентарь IVA Mail
+# Применяется через: awx.awx.inventory
+#
+# Инвентарь динамический — хосты кластера добавляются во время выполнения
+# плейбука через модуль add_host на основе переменных Survey.
+#
+# Топология кластера (задаётся через Survey при запуске задач):
+#   - HAProxy:    10.3.6.101
+#   - Frontend:   10.3.6.102, 10.3.6.103
+#   - Backend:    10.3.6.126, 10.3.6.127
+#   - Storage:    10.3.6.128  (PostgreSQL + NFS)
+#   - Monitoring: 10.3.6.108
+
+---
+- name: "IVA Mail Dynamic"
+  description: "Динамический инвентарь — хосты добавляются через add_host из Survey"
+  organization: "IVA Mail"
+  state: present

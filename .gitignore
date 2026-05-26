@@ -1,0 +1,14 @@
+.env
+.env.*
+!.env.example
+*.pyc
+__pycache__/
+*.egg-info/
+dist/
+node_modules/
+.venv/
+venv/
+deploy-logs/*.log
+.tmp/
+*.db
+*.sqlite3

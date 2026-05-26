@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Отчёт о развертывании IVA Mail — {{ deployment_id[:8] }}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+         background: #f8fafc; color: #1e293b; line-height: 1.6; }
+  .container { max-width: 960px; margin: 0 auto; padding: 32px 24px; }
+
+  /* Header */
+  .header { background: #1e293b; color: white; border-radius: 12px;
+            padding: 28px 32px; margin-bottom: 28px; }
+  .header h1 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+  .header .meta { font-size: 13px; color: #94a3b8; }
+  .status-badge { display: inline-block; padding: 4px 14px; border-radius: 20px;
+                  font-size: 13px; font-weight: 600; margin-top: 12px; }
+  .status-success { background: #16a34a; color: white; }
+  .status-failed  { background: #dc2626; color: white; }
+
+  /* Cards */
+  .card { background: white; border: 1px solid #e2e8f0; border-radius: 10px;
+          padding: 24px; margin-bottom: 20px; }
+  .card h2 { font-size: 15px; font-weight: 600; color: #475569;
+             text-transform: uppercase; letter-spacing: .05em;
+             margin-bottom: 16px; padding-bottom: 10px;
+             border-bottom: 1px solid #f1f5f9; }
+
+  /* Summary grid */
+  .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  .stat { text-align: center; padding: 16px; background: #f8fafc;
+          border-radius: 8px; border: 1px solid #e2e8f0; }
+  .stat .value { font-size: 28px; font-weight: 700; color: #1e293b; }
+  .stat .label { font-size: 12px; color: #64748b; margin-top: 4px; }
+  .stat.ok .value   { color: #16a34a; }
+  .stat.fail .value { color: #dc2626; }
+
+  /* Cluster table */
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { text-align: left; padding: 10px 12px; background: #f8fafc;
+       color: #64748b; font-weight: 500; border-bottom: 2px solid #e2e8f0; }
+  td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; }
+  tr:last-child td { border-bottom: none; }
+  .role-badge { display: inline-block; padding: 2px 10px; border-radius: 12px;
+                font-size: 12px; font-weight: 500; }
+  .role-backend  { background: #dbeafe; color: #1d4ed8; }
+  .role-database { background: #fef9c3; color: #854d0e; }
+  .role-nfs      { background: #f3e8ff; color: #7c3aed; }
+  .role-frontend { background: #dcfce7; color: #166534; }
+
+  /* Health checks */
+  .checks-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .check-group { border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; }
+  .check-group-header { padding: 10px 14px; font-size: 13px; font-weight: 600;
+                        background: #f8fafc; border-bottom: 1px solid #e2e8f0; }
+  .check-row { display: flex; align-items: center; justify-content: space-between;
+               padding: 8px 14px; border-bottom: 1px solid #f8fafc; font-size: 13px; }
+  .check-row:last-child { border-bottom: none; }
+  .check-ok   { color: #16a34a; font-weight: 600; }
+  .check-fail { color: #dc2626; font-weight: 600; }
+  .check-error { font-size: 11px; color: #94a3b8; margin-top: 2px; }
+
+  /* License info */
+  .license-row { display: flex; justify-content: space-between;
+                 padding: 8px 0; border-bottom: 1px solid #f1f5f9;
+                 font-size: 14px; }
+  .license-row:last-child { border-bottom: none; }
+  .license-row .lkey { color: #64748b; }
+  .license-row .lval { font-weight: 500; }
+
+  /* Timeline */
+  .timeline { list-style: none; }
+  .timeline li { display: flex; gap: 14px; padding: 8px 0;
+                 border-bottom: 1px solid #f1f5f9; font-size: 13px; }
+  .timeline li:last-child { border-bottom: none; }
+  .tl-time { color: #94a3b8; min-width: 140px; font-family: monospace; }
+  .tl-phase { color: #3b82f6; min-width: 110px; font-weight: 500; }
+  .tl-level-WARNING { color: #d97706; }
+  .tl-level-ERROR   { color: #dc2626; }
+
+  /* Footer */
+  .footer { text-align: center; font-size: 12px; color: #94a3b8;
+            margin-top: 32px; padding-top: 20px; border-top: 1px solid #e2e8f0; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Header -->
+  <div class="header">
+    <h1>Отчёт о развертывании IVA Mail</h1>
+    <div class="meta">
+      ID: {{ deployment_id }} &nbsp;·&nbsp;
+      Создан: {{ created_at }} &nbsp;·&nbsp;
+      Завершён: {{ completed_at or '—' }}
+    </div>
+    <span class="status-badge {{ 'status-success' if status == 'success' else 'status-failed' }}">
+      {{ '✓ Успешно' if status == 'success' else '✗ Ошибка' }}
+    </span>
+    {% if error_message %}
+    <div style="margin-top:10px;padding:10px 14px;background:#7f1d1d;border-radius:6px;font-size:13px;color:#fca5a5;">
+      {{ error_message }}
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Summary -->
+  <div class="card">
+    <h2>Сводка</h2>
+    <div class="summary-grid">
+      <div class="stat">
+        <div class="value">{{ cluster_config.backends | length }}</div>
+        <div class="label">Бэкендов</div>
+      </div>
+      <div class="stat">
+        <div class="value">{{ cluster_config.frontends | length if cluster_config.frontends else 0 }}</div>
+        <div class="label">Фронтендов</div>
+      </div>
+      <div class="stat {{ 'ok' if health_summary.all_ok else 'fail' }}">
+        <div class="value">{{ health_summary.passed }}/{{ health_summary.total }}</div>
+        <div class="label">Проверок прошло</div>
+      </div>
+      <div class="stat">
+        <div class="value">{{ ivamail_version }}</div>
+        <div class="label">Версия IVA Mail</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Cluster nodes -->
+  <div class="card">
+    <h2>Узлы кластера</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Hostname</th>
+          <th>IP</th>
+          <th>Роль</th>
+          <th>SSH</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for backend in cluster_config.backends %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td>{{ backend.hostname }}</td>
+          <td style="font-family:monospace">{{ backend.ip }}</td>
+          <td><span class="role-badge role-backend">backend</span>
+              {% if loop.first %}<span class="role-badge role-backend" style="background:#bfdbfe">dispatcher</span>{% endif %}
+          </td>
+          <td>:{{ backend.ssh_port }}</td>
+        </tr>
+        {% endfor %}
+        <tr>
+          <td>—</td>
+          <td>{{ cluster_config.database_server.hostname }}</td>
+          <td style="font-family:monospace">{{ cluster_config.database_server.ip }}</td>
+          <td>
+            <span class="role-badge role-database">database</span>
+            <span class="role-badge role-nfs">nfs</span>
+          </td>
+          <td>:{{ cluster_config.database_server.ssh_port }}</td>
+        </tr>
+        {% if cluster_config.frontends %}
+        {% for fe in cluster_config.frontends %}
+        <tr>
+          <td>—</td>
+          <td>{{ fe.hostname }}</td>
+          <td style="font-family:monospace">{{ fe.ip }}</td>
+          <td><span class="role-badge role-frontend">frontend</span></td>
+          <td>:{{ fe.ssh_port }}</td>
+        </tr>
+        {% endfor %}
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- License info -->
+  <div class="card">
+    <h2>Лицензия</h2>
+    <div class="license-row">
+      <span class="lkey">Лицензиат (RU)</span>
+      <span class="lval">{{ license_config.licensee_name }}</span>
+    </div>
+    <div class="license-row">
+      <span class="lkey">Лицензиат (EN)</span>
+      <span class="lval">{{ license_config.licensee_name_eng }}</span>
+    </div>
+    <div class="license-row">
+      <span class="lkey">Аккаунтов</span>
+      <span class="lval">{{ "{:,}".format(license_config.licensed_accounts) }}</span>
+    </div>
+    <div class="license-row">
+      <span class="lkey">Ресурсов</span>
+      <span class="lval">{{ "{:,}".format(license_config.licensed_resources) }}</span>
+    </div>
+    <div class="license-row">
+      <span class="lkey">Backend узлов</span>
+      <span class="lval">{{ license_config.cluster_backends }}</span>
+    </div>
+    <div class="license-row">
+      <span class="lkey">Frontend узлов</span>
+      <span class="lval">{{ license_config.cluster_frontends }}</span>
+    </div>
+  </div>
+
+  <!-- Health checks -->
+  <div class="card">
+    <h2>Проверки здоровья</h2>
+    <div class="checks-grid">
+      {% for check_type, data in health_summary.by_type.items() %}
+      <div class="check-group">
+        <div class="check-group-header">
+          {{ check_type.upper() }}
+          &nbsp;
+          <span class="{{ 'check-ok' if data.failed == 0 else 'check-fail' }}">
+            {{ data.passed }}/{{ data.passed + data.failed }}
+          </span>
+        </div>
+        {% for srv in data.servers %}
+        <div class="check-row">
+          <div>
+            <div>{{ srv.hostname }} <span style="color:#94a3b8;font-size:12px">({{ srv.ip }})</span></div>
+            {% if srv.error %}<div class="check-error">{{ srv.error[:80] }}</div>{% endif %}
+          </div>
+          <span class="{{ 'check-ok' if srv.ok else 'check-fail' }}">
+            {{ '✓' if srv.ok else '✗' }}
+          </span>
+        </div>
+        {% endfor %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Deployment log timeline -->
+  <div class="card">
+    <h2>Журнал развертывания</h2>
+    <ul class="timeline">
+      {% for log in logs %}
+      <li>
+        <span class="tl-time">{{ log.created_at.strftime('%Y-%m-%d %H:%M:%S') if log.created_at else '—' }}</span>
+        <span class="tl-phase">{{ log.phase or '—' }}</span>
+        <span class="tl-level-{{ log.level }}">{{ log.message }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  <div class="footer">
+    Сгенерировано IVA Mail Deploy Toolkit &nbsp;·&nbsp; {{ generated_at }}
+  </div>
+
+</div>
+</body>
+</html>

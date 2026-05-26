@@ -1,0 +1,264 @@
+# survey_spec.yml
+# Спецификация Survey для шаблонов задач IVA Mail
+# Используется в job_templates.yml и apply-awx-config.yml
+#
+# Формат: AWX survey_spec (список полей)
+# Все IP-адреса по умолчанию соответствуют топологии кластера IVA Mail
+
+---
+survey_spec:
+  name: "IVA Mail Cluster Survey"
+  description: "Параметры развёртывания IVA Mail кластера"
+  spec:
+
+    # -------------------------------------------------------------------------
+    # Адреса узлов кластера
+    # -------------------------------------------------------------------------
+    - variable: backend_hosts
+      question_name: "Хосты бэкендов (через запятую)"
+      question_description: "IP-адреса backend-серверов IVA Mail"
+      type: text
+      required: true
+      default: "10.3.6.126,10.3.6.127"
+      min: 7
+      max: 1024
+
+    - variable: frontend_hosts
+      question_name: "Хосты фронтендов (через запятую)"
+      question_description: "IP-адреса frontend-серверов IVA Mail"
+      type: text
+      required: true
+      default: "10.3.6.102,10.3.6.103"
+      min: 7
+      max: 1024
+
+    - variable: haproxy_hosts
+      question_name: "Хосты HAProxy (через запятую)"
+      question_description: "IP-адрес(а) сервера балансировки нагрузки"
+      type: text
+      required: true
+      default: "10.3.6.101"
+      min: 7
+      max: 1024
+
+    - variable: storage_host
+      question_name: "Хост Storage (PostgreSQL + NFS)"
+      question_description: "IP-адрес storage-узла (PostgreSQL + NFS)"
+      type: text
+      required: true
+      default: "10.3.6.128"
+      min: 7
+      max: 64
+
+    - variable: monitoring_host
+      question_name: "Хост Monitoring"
+      question_description: "IP-адрес сервера мониторинга"
+      type: text
+      required: true
+      default: "10.3.6.108"
+      min: 7
+      max: 64
+
+    # -------------------------------------------------------------------------
+    # Стратегия распространения пакетов IVA Mail
+    # -------------------------------------------------------------------------
+    - variable: package_source_type
+      question_name: "Стратегия доставки пакета"
+      question_description: >
+        url — скачать с URL;
+        controller — скопировать с контроллера AWX (10.3.6.100);
+        server_same — один путь для всех серверов;
+        server_per_node — индивидуальный путь для каждой ноды
+      type: multiplechoice
+      required: true
+      default: "url"
+      choices: |
+        url
+        controller
+        server_same
+        server_per_node
+
+    - variable: package_url
+      question_name: "URL пакета (стратегия url)"
+      question_description: "HTTP(S)-ссылка для скачивания дистрибутива IVA Mail"
+      type: text
+      required: false
+      default: ""
+      min: 0
+      max: 2048
+
+    - variable: package_controller_path
+      question_name: "Путь к пакету на контроллере"
+      question_description: "Абсолютный путь на контроллере AWX (10.3.6.100)"
+      type: text
+      required: false
+      default: ""
+      min: 0
+      max: 1024
+
+    - variable: package_server_path
+      question_name: "Путь к пакету на серверах (одинаковый)"
+      question_description: "Один путь, одинаковый на всех целевых серверах"
+      type: text
+      required: false
+      default: ""
+      min: 0
+      max: 1024
+
+    - variable: package_per_node_paths
+      question_name: "Пути по нодам (YAML: IP: /path)"
+      question_description: >
+        YAML-словарь вида:
+          10.3.6.126: /opt/ivamail/pkg.tar.gz
+          10.3.6.127: /opt/ivamail/pkg.tar.gz
+      type: textarea
+      required: false
+      default: ""
+      min: 0
+      max: 4096
+
+    # -------------------------------------------------------------------------
+    # Тайминги и таймауты
+    # -------------------------------------------------------------------------
+    - variable: node_startup_delay
+      question_name: "Задержка между запусками нод (сек)"
+      question_description: "Пауза в секундах между последовательными запусками нод"
+      type: integer
+      required: false
+      default: 10
+      min: 0
+      max: 300
+
+    - variable: cmd_port_wait_timeout
+      question_name: "Таймаут ожидания CMD-порта (сек)"
+      question_description: "Максимальное время ожидания доступности CMD-порта 106"
+      type: integer
+      required: false
+      default: 60
+      min: 10
+      max: 600
+
+    - variable: pg_wait_timeout
+      question_name: "Таймаут ожидания PostgreSQL (сек)"
+      question_description: "Максимальное время ожидания доступности PostgreSQL на 10.3.6.128"
+      type: integer
+      required: false
+      default: 60
+      min: 10
+      max: 600
+
+    # -------------------------------------------------------------------------
+    # Лицензионные параметры IVA Mail
+    # -------------------------------------------------------------------------
+    - variable: licensed_accounts
+      question_name: "Количество лицензированных аккаунтов"
+      question_description: "Максимальное число пользовательских аккаунтов по лицензии"
+      type: integer
+      required: true
+      default: 0
+      min: 1
+      max: 1000000
+
+    - variable: licensed_resources
+      question_name: "Количество ресурсов лицензии"
+      question_description: "Число лицензированных ресурсов (почтовых ящиков, алиасов и т.д.)"
+      type: integer
+      required: true
+      default: 0
+      min: 1
+      max: 1000000
+
+    - variable: licensee_name
+      question_name: "Имя лицензиата (рус.)"
+      question_description: "Название организации-лицензиата на русском языке"
+      type: text
+      required: true
+      default: ""
+      min: 1
+      max: 255
+
+    - variable: licensee_name_eng
+      question_name: "Имя лицензиата (eng)"
+      question_description: "Название организации-лицензиата на английском языке"
+      type: text
+      required: true
+      default: ""
+      min: 1
+      max: 255
+
+    # -------------------------------------------------------------------------
+    # Лицензионный файл (для шаблона 02-License-Install-And-Restart)
+    # -------------------------------------------------------------------------
+    - variable: license_file_path
+      question_name: "Путь к файлу лицензии на контроллере AWX"
+      question_description: >
+        Абсолютный путь к .txt файлу лицензии IVA Mail на контроллере AWX (10.3.6.100).
+        Используется только при запуске 02-License-Install-And-Restart.
+        Пример: /opt/ivamail/license.txt
+      type: text
+      required: false
+      default: "/opt/ivamail/license.txt"
+      min: 0
+      max: 1024
+
+    # -------------------------------------------------------------------------
+    # Управление конфигурацией IVA Mail (плейбуки 07/08/09)
+    # -------------------------------------------------------------------------
+    - variable: config_tag_name
+      question_name: "Имя тега снимка конфигурации"
+      question_description: >
+        Имя git-тега для нового снимка конфигурации (07-config-dump).
+        По умолчанию: config-YYYY-MM-DD (дата запуска).
+        Пример: config-before-upgrade-2024-01-15
+      type: text
+      required: false
+      default: ""
+      min: 0
+      max: 128
+
+    - variable: config_modules
+      question_name: "Модули для дампа конфигурации (через запятую)"
+      question_description: >
+        Список модулей IVA Mail для снимка конфигурации.
+        По умолчанию: Cluster,CMD,SMTP,IMAP,POP3,WebAccess,AntiSpam,Antivirus
+      type: text
+      required: false
+      default: "Cluster,CMD,SMTP,IMAP,POP3,WebAccess,AntiSpam,Antivirus"
+      min: 0
+      max: 512
+
+    - variable: config_rollback_tag
+      question_name: "Git-тег снимка для отката (09-config-rollback)"
+      question_description: >
+        Имя git-тега, к которому нужно откатить конфигурацию.
+        Посмотреть доступные теги: git -C /opt/ivamail-config-repo tag --list "config-*"
+        Пример: config-2024-01-15
+      type: text
+      required: false
+      default: ""
+      min: 0
+      max: 128
+
+    - variable: config_restart_after_restore
+      question_name: "Перезапускать IVA Mail после отката конфигурации?"
+      question_description: >
+        Перезапустить ivamail.service на каждом бэкенде после применения
+        восстановленной конфигурации. Рекомендуется: true.
+      type: multiplechoice
+      required: false
+      default: "true"
+      choices: |
+        true
+        false
+
+    - variable: config_input_dir
+      question_name: "Каталог с JSON-конфигурацией (08-config-apply)"
+      question_description: >
+        Путь к каталогу с JSON-файлами конфигурации на AWX контроллере (10.3.6.100).
+        Используется только при запуске 08-Config-Apply.
+        Пример: /opt/ivamail-config-repo/cmd-configs/10.3.6.126
+      type: text
+      required: false
+      default: ""
+      min: 0
+      max: 1024

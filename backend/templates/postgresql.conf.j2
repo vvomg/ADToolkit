@@ -1,0 +1,53 @@
+# postgresql.conf — сгенерировано IVA Mail Deploy Toolkit
+
+#------------------------------------------------------------------------------
+# FILE LOCATIONS — критично, без этого PostgreSQL не запустится
+#------------------------------------------------------------------------------
+data_directory = '/var/lib/postgresql/{{ pg_version | default("16") }}/main'
+hba_file = '/etc/postgresql/{{ pg_version | default("16") }}/main/pg_hba.conf'
+ident_file = '/etc/postgresql/{{ pg_version | default("16") }}/main/pg_ident.conf'
+external_pid_file = '/var/run/postgresql/{{ pg_version | default("16") }}-main.pid'
+
+#------------------------------------------------------------------------------
+# CONNECTIONS AND AUTHENTICATION
+#------------------------------------------------------------------------------
+listen_addresses = '*'
+port = {{ pg_port | default(5432) }}
+max_connections = {{ max_connections | default(200) }}
+
+#------------------------------------------------------------------------------
+# RESOURCE USAGE
+#------------------------------------------------------------------------------
+shared_buffers = {{ shared_buffers | default('256MB') }}
+work_mem = {{ work_mem | default('4MB') }}
+maintenance_work_mem = {{ maintenance_work_mem | default('64MB') }}
+
+#------------------------------------------------------------------------------
+# WRITE AHEAD LOG
+#------------------------------------------------------------------------------
+wal_level = replica
+max_wal_size = 1GB
+min_wal_size = 80MB
+
+#------------------------------------------------------------------------------
+# LOGGING
+#------------------------------------------------------------------------------
+logging_collector = on
+log_directory = '/var/log/postgresql'
+log_filename = 'postgresql-{{ pg_version | default("16") }}-main.log'
+log_rotation_age = 1d
+log_rotation_size = 100MB
+log_min_duration_statement = 1000
+log_line_prefix = '%t [%p]: [%l-1] user=%u,db=%d,app=%a,client=%h '
+log_timezone = 'UTC'
+
+#------------------------------------------------------------------------------
+# CLIENT CONNECTION DEFAULTS
+#------------------------------------------------------------------------------
+datestyle = 'iso, mdy'
+timezone = 'UTC'
+lc_messages = 'en_US.UTF-8'
+lc_monetary = 'en_US.UTF-8'
+lc_numeric = 'en_US.UTF-8'
+lc_time = 'en_US.UTF-8'
+default_text_search_config = 'pg_catalog.russian'

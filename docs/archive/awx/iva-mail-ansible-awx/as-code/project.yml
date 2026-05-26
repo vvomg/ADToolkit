@@ -1,0 +1,18 @@
+# project.yml
+# Ресурс AWX: Проект iva-mail-ansible (Git SCM)
+# Применяется через: awx.awx.project
+#
+# scm_url — замените на реальный URL вашего репозитория Git
+
+---
+- name: "iva-mail-ansible"
+  description: "Ansible-плейбуки для развёртывания IVA Mail кластера"
+  organization: "IVA Mail"
+  scm_type: git
+  # Замените URL на адрес вашего внутреннего репозитория
+  scm_url: "https://git.internal/iva-mail-ansible.git"
+  scm_branch: "main"
+  scm_clean: true
+  scm_delete_on_update: false
+  update_on_launch: true
+  state: present

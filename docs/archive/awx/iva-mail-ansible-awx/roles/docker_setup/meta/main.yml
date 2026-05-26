@@ -1,0 +1,39 @@
+---
+# roles/docker_setup/meta/main.yml
+# Galaxy метаинформация для роли docker_setup
+
+namespace: ivamail
+name: docker_setup
+version: 1.0.0
+description: "Установка Docker и Docker Compose на Ubuntu для контейнеризированных сервисов"
+author: "IVA Mail DevOps Team"
+license: MIT
+
+# Минимальная версия Ansible
+min_ansible_version: "2.15"
+
+# Поддерживаемые платформы
+platforms:
+  - name: Ubuntu
+    versions:
+      - "20.04"
+      - "22.04"
+
+# Классификация
+tags:
+  - docker
+  - docker-compose
+  - containerization
+  - awx
+  - infrastructure
+
+# Зависимости (если есть)
+dependencies: []
+
+# Ключевые слова для поиска
+keywords:
+  - docker
+  - docker-compose
+  - container
+  - awx
+  - ansible-tower

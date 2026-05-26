@@ -1,0 +1,53 @@
+---
+# inventory/controllers.yml
+# Инвентарь для контроллеров кластера IVA Mail
+#
+# Группа 'controllers' содержит все хосты для управления и оркестрации
+# В текущем развёртывании это один узел — контроллер AWX
+
+all:
+  children:
+    controllers:
+      hosts:
+        controller-awx:
+          ansible_host: 10.3.6.100
+          ansible_user: root
+          ansible_port: 22
+
+          # Переменные для роли docker_setup
+          docker_service_state: started
+          docker_service_enabled: true
+
+          # Переменные для AWX
+          awx_version: "23.9.0"
+          awx_admin_user: "admin"
+          # Пароли НЕ кладутся в инвентарь! Передавайте через:
+          # - extra_vars: -e "awx_admin_password=... awx_db_password=..."
+          # - group_vars/controllers/vault.yml (зашифровано через ansible-vault)
+          # - интерактивно при запуске плейбука
+
+      vars:
+        # Общие переменные для контроллеров
+        ansible_python_interpreter: /usr/bin/python3
+        ansible_become: false
+
+        # Docker пакеты (по умолчанию из role defaults)
+        docker_packages:
+          - docker.io
+          - docker-compose-plugin
+
+        # URL репозитория Docker
+        docker_repo_url: "https://download.docker.com/linux/ubuntu"
+
+        # Пользователи для docker группы
+        docker_group_members:
+          - root
+
+        # Пути проекта
+        awx_project_path: "/opt/iva-mail-ansible"
+        awx_compose_file: "docker-compose.awx.yml"
+        awx_env_file: ".env.awx"
+
+        # API параметры
+        awx_host: "http://localhost:8080"
+        awx_api_endpoint: "/api/v2/"
