@@ -1,0 +1,57 @@
+---
+# tasks/configure.yml — ivamail_backend role
+# Конфигурация узла IVA Mail в режиме backend:
+#   - создание каталога данных с правильными правами
+#   - запись parameters.conf с ARGS="--backend"
+#   - рекурсивный chown ivamail:ivamail на /var/ivamail
+#   - включение сервиса в автозапуск (без запуска — плейбук управляет стартом)
+
+# Создаём каталог данных IVA Mail, если он ещё не существует
+- name: Создать каталог данных IVA Mail ({{ ivamail_data_dir }})
+  ansible.builtin.file:
+    path: "{{ ivamail_data_dir }}"
+    state: directory
+    owner: "{{ ivamail_user }}"
+    group: "{{ ivamail_group }}"
+    mode: '0750'
+  tags:
+    - ivamail_backend
+    - configure
+
+# parameters.conf — ключевой файл режима запуска.
+# ARGS="--backend" переводит IVA Mail в режим backend-узла кластера.
+- name: Записать parameters.conf с ARGS="--backend"
+  ansible.builtin.copy:
+    dest: "{{ ivamail_parameters_conf }}"
+    content: "ARGS=\"--backend\"\n"
+    owner: "{{ ivamail_user }}"
+    group: "{{ ivamail_group }}"
+    mode: '0644'
+  notify: restart ivamail
+  tags:
+    - ivamail_backend
+    - configure
+
+# Рекурсивно выставляем владельца ivamail:ivamail на весь каталог данных.
+# Особенно важно после монтирования NFS-шары ролью nfs_client,
+# когда файлы в /var/ivamail/Cluster могут принадлежать root.
+- name: Установить владельца ivamail:ivamail рекурсивно на {{ ivamail_data_dir }}
+  ansible.builtin.file:
+    path: "{{ ivamail_data_dir }}"
+    owner: "{{ ivamail_user }}"
+    group: "{{ ivamail_group }}"
+    recurse: true
+  tags:
+    - ivamail_backend
+    - configure
+
+# Включаем сервис в автозапуск. НЕ запускаем здесь —
+# плейбук 02-backends.yml управляет порядком старта узлов кластера
+# (сначала be1, дождаться готовности, затем be2).
+- name: Включить ivamail.service в автозапуск (systemd)
+  ansible.builtin.service:
+    name: "{{ ivamail_service_name }}"
+    enabled: true
+  tags:
+    - ivamail_backend
+    - configure

@@ -1,0 +1,7 @@
+---
+# handlers/main.yml — bootstrap role
+
+- name: restart sshd
+  ansible.builtin.service:
+    name: sshd
+    state: restarted

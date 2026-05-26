@@ -3,34 +3,34 @@
 # 03-frontends.yml — Установка IVA Mail на фронтенды (Итерация 4)
 # =============================================================================
 # Порядок плеев:
-#   Play 1 (localhost)   — строит динамический инвентарий из Survey AWX
+#   Play 1 (localhost)   — строит динамический инвентарий из extra_vars
 #   Play 2 (frontends)   — параллельная установка пакета в режиме --frontend
 #                          (роли: ivamail_common, ivamail_frontend)
 #   Play 3 (frontends)   — параллельный запуск ivamail.service + ожидание CMD-порта
 #   Play 4 (frontends)   — параллельная настройка кластера через CMD-протокол (порт 106)
 #
-# Учётные данные AWX (Credentials):
+# Учётные данные Ansible (Credentials):
 #   - "IVA Mail SSH Key"   — SSH-доступ к фронтендам
 #   - "IVA Mail CMD"       — IVAMAIL_CMD_USER / IVAMAIL_CMD_PASSWORD → cmd_client.py
 #
-# Ключевые Survey-переменные:
+# Ключевые extra_vars-переменные:
 #   frontend_hosts         — фронтенды (CSV): "10.3.6.102,10.3.6.103"
 #   backend_hosts          — бэкенды (CSV): "10.3.6.126,10.3.6.127"
 #   package_source_type    — стратегия доставки пакета: url|controller|server_same|server_per_node
 #   node_startup_delay     — пауза (сек) после старта сервиса  [default: 10]
 #   cmd_port_wait_timeout  — таймаут ожидания CMD-порта (сек)  [default: 60]
 #
-# Запуск вне AWX (для тестирования):
+# Запуск напрямую (для тестирования):
 #   ansible-playbook playbooks/03-frontends.yml \
 #     -e @tests/survey_vars.yml \
 #     -e IVAMAIL_CMD_USER=admin -e IVAMAIL_CMD_PASSWORD=admin
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# PLAY 1: Динамический инвентарий из Survey AWX
+# PLAY 1: Динамический инвентарий из extra_vars
 # (дублируется из предыдущих плейбуков — каждый плейбук самодостаточен)
 # -----------------------------------------------------------------------------
-- name: Построить динамический инвентарий из Survey AWX
+- name: Построить динамический инвентарий из extra_vars
   hosts: localhost
   gather_facts: no
   tasks:
@@ -197,7 +197,7 @@
 # Фронтенды получают список бэкендов через cluster-config — это позволяет
 # им маршрутизировать клиентские запросы на нужные узлы кластера.
 #
-# Учётные данные CMD инжектируются AWX Credential "IVA Mail CMD":
+# Учётные данные CMD инжектируются переменных окружения IVAMAIL_CMD_*:
 #   IVAMAIL_CMD_USER / IVAMAIL_CMD_PASSWORD
 #
 # ansible.builtin.script запускает скрипт локально на контроллере,

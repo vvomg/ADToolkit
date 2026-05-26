@@ -3,24 +3,24 @@
 # 06-backup-config.yml — Резервное копирование и версионирование конфигураций (Итерация 6)
 # =============================================================================
 # Порядок плеев:
-#   Play 1 (localhost)  — динамический инвентарий из Survey AWX
+#   Play 1 (localhost)  — динамический инвентарий из extra_vars
 #   Play 2 (storage)    — pg_dump cron + rsync NFS cron на узле хранилища
 #   Play 3 (monitoring) — git-репозиторий конфигураций на узле мониторинга
 #
-# AWX Credentials: IVA Mail SSH Key + PostgreSQL Admin (PG_ADMIN_PASSWORD)
-# Survey vars: storage_host, monitoring_host, backend_hosts, ...
+# Переменные окружения: SSH_KEY, PG_ADMIN_PASSWORD
+# Extra vars: storage_host, monitoring_host, backend_hosts, ...
 #
-# Запуск вне AWX:
+# Запуск напрямую:
 #   ansible-playbook playbooks/06-backup-config.yml \
 #     -e @tests/survey_vars.yml \
 #     -e PG_ADMIN_PASSWORD=postgres
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# PLAY 1: Динамический инвентарий из Survey AWX
+# PLAY 1: Динамический инвентарий из extra_vars
 # (дублируется из предыдущих плейбуков — каждый плейбук самодостаточен)
 # -----------------------------------------------------------------------------
-- name: Построить динамический инвентарий из Survey AWX
+- name: Построить динамический инвентарий из extra_vars
   hosts: localhost
   gather_facts: no
   tasks:
@@ -115,7 +115,7 @@
 #   - cron-задачу ежедневного pg_dump базы ivamail
 #   - cron-задачу rsync NFS-шары /srv/nfs/nfsshared в каталог бэкапов
 #
-# AWX Credential "PostgreSQL Admin" инжектирует PG_ADMIN_PASSWORD в окружение.
+# переменной окружения PG_ADMIN_PASSWORD инжектирует PG_ADMIN_PASSWORD в окружение.
 # -----------------------------------------------------------------------------
 - name: Настроить резервное копирование PostgreSQL и NFS на узле хранилища
   hosts: storage

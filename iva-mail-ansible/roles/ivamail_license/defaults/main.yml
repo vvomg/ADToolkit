@@ -1,0 +1,47 @@
+---
+# defaults/main.yml
+# Переменные по умолчанию для роли ivamail_license.
+# Все значения могут быть переопределены из group_vars, host_vars
+# или через extra_vars-переменные.
+
+# Имя systemd-сервиса IVA Mail
+ivamail_service_name: "ivamail"
+
+# CMD-порт бэкенда (порт протокола управления IVA Mail)
+cmd_port: 106
+
+# Таймаут ожидания ответа от CMD-порта (секунды)
+cmd_port_wait_timeout: 60
+
+# Действие роли: request — сгенерировать запрос, install — установить лицензию.
+# Задаётся из плейбука через переменную ivamail_license_action.
+ivamail_license_action: request
+
+# Каталог на Ansible-контроллере для сохранения файлов запросов лицензии.
+# Должен существовать до запуска роли; права: владелец — пользователь ansible.
+ivamail_license_request_dir: "/opt/ivamail/license_requests"
+
+# Полный путь к файлу лицензии на Ansible-контроллере.
+# Передаётся через extra_vars-переменную license_file_path.
+ivamail_license_file_path: "{{ license_file_path | default('/opt/ivamail/license.txt') }}"
+
+# CSV-строка IP-адресов всех бэкенд-узлов кластера (например: "10.3.6.11,10.3.6.12").
+# Используется при формировании LicenseRequest.
+# Задаётся из inventory или group_vars.
+backend_hosts: ""
+
+# CSV-строка IP-адресов всех фронтенд-узлов кластера (например: "10.3.6.21,10.3.6.22").
+# Используется для подсчёта _license_cluster_frontends.
+frontend_hosts: ""
+
+# Количество лицензируемых аккаунтов (из extra_vars)
+licensed_accounts: 0
+
+# Количество лицензируемых ресурсов (из extra_vars)
+licensed_resources: 0
+
+# Наименование лицензиата на русском языке (из extra_vars)
+licensee_name: ""
+
+# Наименование лицензиата на английском языке (из extra_vars)
+licensee_name_eng: ""

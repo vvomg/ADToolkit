@@ -1,0 +1,69 @@
+---
+# tasks/grafana.yml — установка Grafana из официального apt-репозитория
+
+- name: Создать каталог для ключей APT
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+  tags:
+    - monitoring
+    - grafana
+
+- name: Скачать GPG-ключ Grafana
+  ansible.builtin.get_url:
+    url: https://apt.grafana.com/gpg.key
+    dest: /etc/apt/keyrings/grafana.gpg
+    mode: "0644"
+  tags:
+    - monitoring
+    - grafana
+
+- name: Добавить официальный репозиторий Grafana
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/grafana.gpg] https://apt.grafana.com stable main"
+    state: present
+    update_cache: yes
+  tags:
+    - monitoring
+    - grafana
+
+- name: Установить пакет Grafana
+  ansible.builtin.apt:
+    name: grafana
+    state: present
+  tags:
+    - monitoring
+    - grafana
+
+- name: Задать пароль администратора Grafana в grafana.ini
+  ansible.builtin.ini_file:
+    path: /etc/grafana/grafana.ini
+    section: security
+    option: admin_password
+    value: "{{ grafana_admin_password }}"
+    mode: "0640"
+  no_log: true
+  notify: restart grafana
+  tags:
+    - monitoring
+    - grafana
+
+- name: Включить и запустить сервис Grafana
+  ansible.builtin.service:
+    name: "{{ grafana_service }}"
+    enabled: yes
+    state: started
+  tags:
+    - monitoring
+    - grafana
+
+- name: Дождаться запуска Grafana на порту {{ grafana_port }}
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ grafana_port }}"
+    timeout: 60
+  tags:
+    - monitoring
+    - grafana
+    - healthcheck

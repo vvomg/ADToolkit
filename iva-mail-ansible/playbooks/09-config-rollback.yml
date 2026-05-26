@@ -3,22 +3,22 @@
 # 09-config-rollback.yml — Откат конфигурации IVA Mail к git-снимку
 # =============================================================================
 # Порядок плеев:
-#   Play 1 (localhost)  — динамический инвентарий из Survey AWX
-#   Play 2 (monitoring) — git checkout тега, rsync на AWX контроллер
+#   Play 1 (localhost)  — динамический инвентарий из extra_vars
+#   Play 2 (monitoring) — git checkout тега, rsync на Ansible-контроллер
 #   Play 3 (backends)   — config-restore через CMD + опциональный restart
 #
 # Использование:
 #   Откатить конфигурацию к снимку, сделанному плейбуком 07-config-dump.yml.
 #   Доступные теги: git -C /opt/ivamail-config-repo tag --list "config-*"
 #
-# AWX Credentials: IVA Mail SSH Key + IVA Mail CMD
-# Survey vars: backend_hosts, monitoring_host, config_rollback_tag,
+# Переменные окружения: IVAMAIL_CMD_USER, IVAMAIL_CMD_PASSWORD
+# Extra vars: backend_hosts, monitoring_host, config_rollback_tag,
 #              config_restart_after_restore (bool, default: true)
 #
-# AWX Approval Node (опционально):
-#   Вставьте Approval Node в Workflow перед этим Job Template для подтверждения.
+# Ручное подтверждение (опционально):
+#   Вставьте ручное подтверждение в Workflow перед этим Job Template для подтверждения.
 #
-# Запуск вне AWX:
+# Запуск напрямую:
 #   IVAMAIL_CMD_USER=admin IVAMAIL_CMD_PASSWORD=secret \
 #   ansible-playbook playbooks/09-config-rollback.yml \
 #     -e @tests/survey_vars.yml \
@@ -27,9 +27,9 @@
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# PLAY 1: Динамический инвентарий из Survey AWX
+# PLAY 1: Динамический инвентарий из extra_vars
 # -----------------------------------------------------------------------------
-- name: Построить динамический инвентарий из Survey AWX
+- name: Построить динамический инвентарий из extra_vars
   hosts: localhost
   gather_facts: no
   tasks:
@@ -64,9 +64,9 @@
       tags: always
 
 # -----------------------------------------------------------------------------
-# PLAY 2: Git checkout тега на мониторинг-хосте + rsync на AWX контроллер
+# PLAY 2: Git checkout тега на мониторинг-хосте + rsync на Ansible-контроллер
 # -----------------------------------------------------------------------------
-- name: Подготовить файлы отката конфигурации на AWX контроллере
+- name: Подготовить файлы отката конфигурации на Ansible-контроллере
   hosts: monitoring
   gather_facts: no
 
@@ -113,7 +113,7 @@
       tags:
         - config_rollback
 
-    - name: Создать временный каталог на AWX контроллере для файлов отката
+    - name: Создать временный каталог на Ansible-контроллере для файлов отката
       ansible.builtin.file:
         path: "{{ _restore_tmp_dir }}"
         state: directory
@@ -122,8 +122,8 @@
       tags:
         - config_rollback
 
-    # rsync тянет данные с monitoring_host на AWX контроллер (direction: pull)
-    - name: "Синхронизировать снимок конфигурации с monitoring на AWX контроллер"
+    # rsync тянет данные с monitoring_host на Ansible-контроллер (direction: pull)
+    - name: "Синхронизировать снимок конфигурации с monitoring на Ansible-контроллер"
       ansible.builtin.command:
         cmd: >-
           rsync -av --delete
@@ -201,7 +201,7 @@
         - healthcheck
 
   post_tasks:
-    - name: Удалить временный каталог отката с AWX контроллера (последний хост)
+    - name: Удалить временный каталог отката с Ansible-контроллера (последний хост)
       ansible.builtin.file:
         path: "{{ _restore_tmp_dir }}"
         state: absent

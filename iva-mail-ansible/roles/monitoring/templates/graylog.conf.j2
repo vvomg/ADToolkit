@@ -1,0 +1,19 @@
+# Сгенерировано Ansible — не редактировать вручную
+# /etc/graylog/server/server.conf
+
+# ОБЯЗАТЕЛЬНО: случайная строка >= 64 символов для шифрования сессий и паролей
+# Генерация: pwgen -N 1 -s 96
+password_secret = {{ graylog_password_secret }}
+
+# SHA-256 хэш пароля администратора (root_password)
+# Вычисляется Ansible через: graylog_root_password | hash('sha256')
+root_password_sha2 = {{ graylog_root_password_sha2 }}
+
+# Адрес и порт веб-интерфейса Graylog
+http_bind_address = 0.0.0.0:{{ graylog_port }}
+
+# OpenSearch / Elasticsearch backend (локальный single-node)
+elasticsearch_hosts = http://127.0.0.1:9200
+
+# MongoDB connection string
+mongodb_uri = mongodb://localhost/graylog

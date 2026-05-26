@@ -1,0 +1,59 @@
+---
+# =============================================================================
+# ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ДЛЯ ВСЕХ ХОСТОВ IVA MAIL КЛАСТЕРА
+# =============================================================================
+# Секреты (пароли, токены) НИКОГДА не хранятся здесь.
+# Они передаются через переменные окружения или ansible-vault:
+#   PG_ADMIN_USER / PG_ADMIN_PASSWORD  — PostgreSQL
+#   IVAMAIL_CMD_USER / IVAMAIL_CMD_PASSWORD — IVA Mail CMD API
+
+# === Подключение ===
+ansible_user: root
+# ansible_ssh_pass задаётся через переменную окружения или ansible-vault
+
+# =============================================================================
+# NFS
+# NFS v3 обязателен для IVA Mail (v4 не поддерживается приложением).
+# =============================================================================
+nfs_server_ip:    "10.3.6.128"
+nfs_export_dir:   "/srv/nfs/nfsshared"
+nfs_mount_point:  "/mnt/mailshare"
+# Опции монтирования: v3, жёсткое монтирование, тайм-аут I/O
+nfs_mount_opts:   "vers=3,hard,intr,timeo=600,retrans=3"
+
+# =============================================================================
+# PostgreSQL
+# =============================================================================
+postgres_port: 5432
+postgres_db:   "ivamail"
+# Пользователь и пароль PostgreSQL берутся из переменных окружения:
+#   ansible_env.PG_ADMIN_USER
+#   ansible_env.PG_ADMIN_PASSWORD
+
+# =============================================================================
+# IVA Mail — основные пути и сервисы
+# =============================================================================
+cmd_port:               106
+ivamail_service_name:   "ivamail"
+ivamail_install_dir:    "/opt/ivamail"
+ivamail_data_dir:       "/var/ivamail"
+ivamail_cluster_link:   "/var/ivamail/Cluster"
+ivamail_parameters_conf: "/var/ivamail/parameters.conf"
+
+# =============================================================================
+# Источник пакета — управляется переменной package_source_type:
+#   url             — скачать с внешнего URL (package_url)
+#   server_same     — пакет уже на каждом целевом хосте (package_server_path)
+#   server_per_node — отдельный путь на каждом узле (package_per_node_paths)
+# =============================================================================
+package_source_type: "url"   # переопределяется через extra-vars или UI
+package_url:              ""
+package_server_path:      ""
+package_per_node_paths:   ""  # формат YAML: "10.3.6.126: /tmp/pkg.rpm\n10.3.6.127: /tmp/pkg.rpm"
+
+# =============================================================================
+# Таймауты (секунды) — переопределяются через extra-vars
+# =============================================================================
+node_startup_delay:    10   # пауза после старта сервиса перед проверкой
+cmd_port_wait_timeout: 60   # ожидание порта IVA Mail CMD (106)
+pg_wait_timeout:       60   # ожидание доступности PostgreSQL

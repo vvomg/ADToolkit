@@ -1,0 +1,77 @@
+# Сгенерировано Ansible — не редактировать вручную
+# Шаблон: roles/haproxy/templates/haproxy.cfg.j2
+{% set fe_list = haproxy_frontend_hosts | split(',') | map('trim') | select('match', '.+') | list %}
+
+#------------------------------------------------------------------------------
+# GLOBAL
+#------------------------------------------------------------------------------
+global
+    log /dev/log local0
+    maxconn {{ haproxy_maxconn }}
+    user  haproxy
+    group haproxy
+    daemon
+
+#------------------------------------------------------------------------------
+# DEFAULTS
+#------------------------------------------------------------------------------
+defaults
+    mode        tcp
+    log         global
+    option      tcplog
+    timeout connect {{ haproxy_timeout_connect }}
+    timeout client  {{ haproxy_timeout_client }}
+    timeout server  {{ haproxy_timeout_server }}
+
+#------------------------------------------------------------------------------
+# IMAP (порт {{ haproxy_imap_port }}) — TCP passthrough на фронтенды
+#------------------------------------------------------------------------------
+frontend imap_frontend
+    bind *:{{ haproxy_imap_port }}
+    default_backend imap_backend
+
+backend imap_backend
+    balance {{ haproxy_balance }}
+{% for item in fe_list %}
+    server fe_{{ loop.index }} {{ item }}:{{ haproxy_imap_port }} check
+{% endfor %}
+
+#------------------------------------------------------------------------------
+# SMTP (порт {{ haproxy_smtp_port }}) — TCP passthrough на фронтенды
+#------------------------------------------------------------------------------
+frontend smtp_frontend
+    bind *:{{ haproxy_smtp_port }}
+    default_backend smtp_backend
+
+backend smtp_backend
+    balance {{ haproxy_balance }}
+{% for item in fe_list %}
+    server fe_{{ loop.index }} {{ item }}:{{ haproxy_smtp_port }} check
+{% endfor %}
+
+#------------------------------------------------------------------------------
+# HTTP (порт {{ haproxy_http_port }}) — TCP с httpchk на фронтенды
+#------------------------------------------------------------------------------
+frontend http_frontend
+    bind *:{{ haproxy_http_port }}
+    default_backend http_backend
+
+backend http_backend
+    balance {{ haproxy_balance }}
+    option  httpchk GET /
+{% for item in fe_list %}
+    server fe_{{ loop.index }} {{ item }}:{{ haproxy_http_port }} check
+{% endfor %}
+
+#------------------------------------------------------------------------------
+# HTTPS (порт {{ haproxy_https_port }}) — TCP passthrough (SSL не терминируется)
+#------------------------------------------------------------------------------
+frontend https_frontend
+    bind *:{{ haproxy_https_port }}
+    default_backend https_backend
+
+backend https_backend
+    balance {{ haproxy_balance }}
+{% for item in fe_list %}
+    server fe_{{ loop.index }} {{ item }}:{{ haproxy_https_port }} check
+{% endfor %}

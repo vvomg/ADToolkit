@@ -1,0 +1,76 @@
+---
+# tasks/main.yml — nfs_server role
+# Установка NFS-сервера на хосте хранилища (10.3.6.128)
+# и экспорт /srv/nfs/nfsshared для бэкендов IVA Mail
+
+- name: Install NFS server packages
+  ansible.builtin.apt:
+    name:
+      - nfs-kernel-server
+      - rpcbind
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  tags:
+    - nfs
+    - nfs_server
+
+- name: Create NFS export directory {{ nfs_export_dir }}
+  ansible.builtin.file:
+    path: "{{ nfs_export_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  tags:
+    - nfs
+    - nfs_server
+
+- name: Start and enable rpcbind
+  ansible.builtin.service:
+    name: rpcbind
+    state: started
+    enabled: true
+  tags:
+    - nfs
+    - nfs_server
+
+- name: Start and enable nfs-kernel-server
+  ansible.builtin.service:
+    name: nfs-kernel-server
+    state: started
+    enabled: true
+  tags:
+    - nfs
+    - nfs_server
+
+- name: Deploy /etc/exports from template
+  ansible.builtin.template:
+    src: nfs_exports.j2
+    dest: /etc/exports
+    owner: root
+    group: root
+    mode: '0644'
+  notify: reload nfs exports
+  tags:
+    - nfs
+    - nfs_server
+
+- name: Verify NFS export directory exists (assert)
+  ansible.builtin.stat:
+    path: "{{ nfs_export_dir }}"
+  register: nfs_export_dir_stat
+  tags:
+    - nfs
+    - nfs_server
+
+- name: Assert NFS export directory is present
+  ansible.builtin.assert:
+    that:
+      - nfs_export_dir_stat.stat.exists
+      - nfs_export_dir_stat.stat.isdir
+    fail_msg: "NFS export directory {{ nfs_export_dir }} does not exist or is not a directory"
+    success_msg: "NFS export directory {{ nfs_export_dir }} verified"
+  tags:
+    - nfs
+    - nfs_server

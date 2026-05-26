@@ -1,0 +1,29 @@
+---
+# tasks/main.yml — backup role
+# Резервное копирование: PostgreSQL dump, rsync NFS, git config-repo.
+# Управление субзадачами через переменные backup_*_enabled (не через --tags CLI):
+#   backup_pg_enabled  — pg_dump (storage-хост)
+#   backup_nfs_enabled — rsync NFS (storage-хост)
+#   backup_git_enabled — git config-repo (monitoring-хост)
+# Дефолты: все true. Переопределяются через vars в плейбуке.
+
+- name: Настроить резервное копирование PostgreSQL (pg_dump cron)
+  ansible.builtin.include_tasks: pg_dump.yml
+  when: backup_pg_enabled | default(true) | bool
+  tags:
+    - backup
+    - backup_pg
+
+- name: Настроить rsync-резервное копирование NFS-шары
+  ansible.builtin.include_tasks: rsync_nfs.yml
+  when: backup_nfs_enabled | default(true) | bool
+  tags:
+    - backup
+    - backup_nfs
+
+- name: Инициализировать git-репозиторий конфигураций
+  ansible.builtin.include_tasks: git_repo.yml
+  when: backup_git_enabled | default(true) | bool
+  tags:
+    - backup
+    - backup_git

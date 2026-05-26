@@ -1,0 +1,20 @@
+---
+- name: restart prometheus
+  ansible.builtin.service:
+    name: "{{ prometheus_service }}"
+    state: restarted
+
+- name: restart grafana
+  ansible.builtin.service:
+    name: "{{ grafana_service }}"
+    state: restarted
+
+- name: restart graylog
+  ansible.builtin.service:
+    name: "{{ graylog_service }}"
+    state: restarted
+
+- name: restart opensearch
+  ansible.builtin.service:
+    name: opensearch
+    state: restarted

@@ -3,7 +3,7 @@
 # 08-config-apply.yml — Применить конфигурацию IVA Mail из JSON-файлов
 # =============================================================================
 # Порядок плеев:
-#   Play 1 (localhost)  — динамический инвентарий из Survey AWX
+#   Play 1 (localhost)  — динамический инвентарий из extra_vars
 #   Play 2 (backends)   — config-restore через CMD для каждого бэкенда
 #
 # Используется для:
@@ -11,10 +11,10 @@
 #   - Восстановления после ручного редактирования JSON-файлов
 #   - Применения конфигурации из произвольного каталога
 #
-# AWX Credentials: IVA Mail SSH Key + IVA Mail CMD
-# Survey vars: backend_hosts, config_input_dir (путь к JSON-файлам на AWX контроллере)
+# Переменные окружения: IVAMAIL_CMD_USER, IVAMAIL_CMD_PASSWORD
+# Extra vars: backend_hosts, config_input_dir (путь к JSON-файлам на Ansible-контроллере)
 #
-# Запуск вне AWX:
+# Запуск напрямую:
 #   IVAMAIL_CMD_USER=admin IVAMAIL_CMD_PASSWORD=secret \
 #   ansible-playbook playbooks/08-config-apply.yml \
 #     -e @tests/survey_vars.yml \
@@ -22,9 +22,9 @@
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# PLAY 1: Динамический инвентарий из Survey AWX
+# PLAY 1: Динамический инвентарий из extra_vars
 # -----------------------------------------------------------------------------
-- name: Построить динамический инвентарий из Survey AWX
+- name: Построить динамический инвентарий из extra_vars
   hosts: localhost
   gather_facts: no
   tasks:
@@ -62,13 +62,13 @@
           - config_input_dir | length > 0
         fail_msg: >
           Переменная config_input_dir не задана.
-          Укажите путь к каталогу JSON-файлов конфигурации на AWX контроллере.
+          Укажите путь к каталогу JSON-файлов конфигурации на Ansible-контроллере.
           Пример: /opt/ivamail-config-repo/cmd-configs/10.3.6.126
       delegate_to: localhost
       tags:
         - config_apply
 
-    - name: Проверить наличие каталога конфигурации на AWX контроллере
+    - name: Проверить наличие каталога конфигурации на Ansible-контроллере
       ansible.builtin.stat:
         path: "{{ config_input_dir }}"
       register: _input_dir_stat
@@ -81,7 +81,7 @@
         that:
           - _input_dir_stat.stat.exists
           - _input_dir_stat.stat.isdir
-        fail_msg: "Каталог конфигурации не найден на AWX контроллере: {{ config_input_dir }}"
+        fail_msg: "Каталог конфигурации не найден на Ansible-контроллере: {{ config_input_dir }}"
       delegate_to: localhost
       tags:
         - config_apply

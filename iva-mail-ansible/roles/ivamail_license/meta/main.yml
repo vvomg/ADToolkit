@@ -1,0 +1,9 @@
+---
+# meta/main.yml
+# Метаданные роли ivamail_license.
+
+galaxy_info:
+  description: "IVA Mail license request and install via CMD protocol"
+  min_ansible_version: "2.12"
+
+dependencies: []

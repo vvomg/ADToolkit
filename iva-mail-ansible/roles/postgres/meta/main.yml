@@ -1,0 +1,22 @@
+---
+# meta/main.yml — postgres role
+
+galaxy_info:
+  role_name: postgres
+  author: iva-mail-deploy
+  description: >
+    Install and configure PostgreSQL on the IVA Mail storage host.
+    Creates the ivamail database and configures access for backend hosts.
+  license: MIT
+  min_ansible_version: "2.12"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+
+dependencies: []

@@ -1,0 +1,23 @@
+---
+# tasks/main.yml — ivamail_backend role
+# Настройка узла IVA Mail в режиме backend:
+#   1. Установка postgresql-contrib (нужен для psycopg2 и расширений PostgreSQL)
+#   2. Инициализация схемы БД через ivamail-db-setup.sh
+#   3. Запись parameters.conf с ARGS="--backend" и выставление прав
+
+# postgresql-contrib требуется на бэкендах для работы с pg-расширениями
+- name: Установить postgresql-contrib
+  ansible.builtin.apt:
+    name: postgresql-contrib
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  tags:
+    - ivamail_backend
+    - packages
+
+- name: Запустить db_setup.yml — инициализация схемы БД IVA Mail
+  ansible.builtin.include_tasks: db_setup.yml
+
+- name: Запустить configure.yml — настройка parameters.conf и прав доступа
+  ansible.builtin.include_tasks: configure.yml

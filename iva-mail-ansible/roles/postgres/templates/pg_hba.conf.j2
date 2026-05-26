@@ -1,0 +1,15 @@
+# pg_hba.conf — сгенерировано IVA Mail Deploy Toolkit
+# Управляется Ansible, ручные правки будут перезаписаны.
+# TYPE  DATABASE        USER            ADDRESS                 METHOD
+
+# Локальный доступ (unix socket — для служебных операций postgres)
+local   all             all                                     peer
+
+# Локальный TCP-доступ (127.0.0.1 — для healthcheck и скриптов)
+host    all             all             127.0.0.1/32            md5
+host    all             all             ::1/128                 md5
+
+# Доступ для бэкендов IVA Mail к базе данных
+{% for backend in postgres_backends %}
+host    {{ postgres_db }}    {{ postgres_user }}    {{ backend.ip }}/32    md5
+{% endfor %}

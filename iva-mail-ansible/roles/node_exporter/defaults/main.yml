@@ -1,0 +1,8 @@
+---
+# defaults/main.yml — node_exporter role
+
+node_exporter_port: 9100
+node_exporter_listen_address: "0.0.0.0:9100"
+node_exporter_service: prometheus-node-exporter
+# IP узла мониторинга (для справки)
+monitoring_host: ""

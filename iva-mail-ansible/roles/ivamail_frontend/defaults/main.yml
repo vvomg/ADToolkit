@@ -1,0 +1,31 @@
+---
+# defaults/main.yml — ivamail_frontend role
+
+# Режим запуска IVA Mail: фронтенд принимает клиентские подключения
+# и перенаправляет их на бэкенд-узлы кластера
+ivamail_frontend_mode: "--frontend"
+
+# Имя systemd-сервиса IVA Mail
+ivamail_service_name: "ivamail"
+
+# Рабочий каталог IVA Mail
+# Дублируется здесь как fallback на случай, если group_vars не загружены
+ivamail_data_dir: "/var/ivamail"
+
+# Файл параметров запуска. Содержимое: ARGS="--frontend"
+ivamail_parameters_conf: "{{ ivamail_data_dir }}/parameters.conf"
+
+# Системный пользователь и группа IVA Mail (создаются пакетом при установке)
+ivamail_user: "ivamail"
+ivamail_group: "ivamail"
+
+# CMD-порт для взаимодействия узлов кластера
+cmd_port: 106
+
+# Таймаут ожидания CMD-порта при проверке готовности узла (секунд)
+cmd_port_wait_timeout: 60
+
+# Список бэкенд-хостов, на которые фронтенд перенаправляет трафик.
+# Передаётся из extra_vars или через extra_vars. Пустая строка — значение по умолчанию,
+# реальное значение обязательно должно быть передано при запуске плейбука.
+backend_hosts: ""

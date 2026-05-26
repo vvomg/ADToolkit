@@ -3,24 +3,24 @@
 # 05-monitoring.yml — Мониторинг кластера IVA Mail (Итерация 5)
 # =============================================================================
 # Порядок плеев:
-#   Play 1 (localhost)    — динамический инвентарий из Survey AWX
+#   Play 1 (localhost)    — динамический инвентарий из extra_vars
 #   Play 2 (all_ivamail)  — node_exporter на всех узлах кластера (параллельно)
 #   Play 3 (all_ivamail)  — rsyslog: пересылка логов IVA Mail в Graylog (параллельно)
 #   Play 4 (monitoring)   — полный стек мониторинга: Prometheus + Grafana + Graylog
 #
-# AWX Credentials: IVA Mail SSH Key
-# Survey vars: backend_hosts, frontend_hosts, haproxy_hosts, storage_host, monitoring_host
+# Переменные окружения: SSH_KEY
+# Extra vars: backend_hosts, frontend_hosts, haproxy_hosts, storage_host, monitoring_host
 #
-# Запуск вне AWX:
+# Запуск напрямую:
 #   ansible-playbook playbooks/05-monitoring.yml \
 #     -e @tests/survey_vars.yml
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# PLAY 1: Динамический инвентарий из Survey AWX
+# PLAY 1: Динамический инвентарий из extra_vars
 # (дублируется из предыдущих плейбуков — каждый плейбук самодостаточен)
 # -----------------------------------------------------------------------------
-- name: Построить динамический инвентарий из Survey AWX
+- name: Построить динамический инвентарий из extra_vars
   hosts: localhost
   gather_facts: no
   tasks:

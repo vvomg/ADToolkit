@@ -1,0 +1,12 @@
+---
+# tasks/main.yml — ivamail_frontend role
+# Настройка узла IVA Mail в режиме frontend:
+#   1. Запись parameters.conf с ARGS="--frontend" и выставление прав
+#
+# Фронтенд — прокси-узел: не требует инициализации БД и монтирования NFS.
+# Пакет IVA Mail уже установлен ролью ivamail_common (объявлена как зависимость).
+
+- name: Запустить configure.yml — настройка parameters.conf и прав доступа
+  ansible.builtin.include_tasks: configure.yml
+  tags:
+    - ivamail_frontend

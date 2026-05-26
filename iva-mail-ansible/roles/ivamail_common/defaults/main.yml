@@ -1,0 +1,29 @@
+---
+# defaults/main.yml — ivamail_common role
+
+# Имя systemd-сервиса IVA Mail
+ivamail_service_name: "ivamail"
+
+# Временный каталог для загрузки/копирования пакета
+ivamail_pkg_tmp_dir: "/tmp/ivamail_install"
+
+# Стратегия доставки пакета: url | controller | server_same | server_per_node
+# Переопределяется из extra_vars
+package_source_type: "url"
+
+# === Стратегия: url ===
+# Прямая загрузка пакета на целевой узел с указанного URL
+package_url: ""
+
+# === Стратегия: controller ===
+# Путь к пакету на Ansible-контроллере (копируется с localhost → target)
+package_controller_path: ""
+
+# === Стратегия: server_same ===
+# Единый путь к пакету, одинаковый на всех узлах
+package_server_path: ""
+
+# === Стратегия: server_per_node ===
+# YAML-строка формата: "10.3.6.126: /path/pkg.deb\n10.3.6.127: /path/pkg.deb"
+# Передаётся из extra_vars как textarea
+package_per_node_paths: ""

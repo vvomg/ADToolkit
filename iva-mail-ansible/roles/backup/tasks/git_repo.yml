@@ -1,0 +1,122 @@
+---
+# tasks/git_repo.yml — версионирование конфигурационных файлов IVA Mail
+# Инициализирует bare git-репозиторий, настраивает идентификатор коммитера,
+# генерирует скрипт сбора конфигов и регистрирует задание cron.
+
+- name: Установить git
+  ansible.builtin.apt:
+    name: git
+    state: present
+  tags:
+    - backup
+    - backup_git
+
+- name: Создать каталог git-репозитория конфигураций
+  ansible.builtin.file:
+    path: "{{ backup_git_repo_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags:
+    - backup
+    - backup_git
+
+# args.creates предотвращает повторную инициализацию при повторном запуске роли.
+# changed_when: true — команда всегда считается изменяющей состояние при первом запуске.
+- name: Инициализировать git-репозиторий (если ещё не создан)
+  ansible.builtin.command:
+    cmd: git init "{{ backup_git_repo_dir }}"
+    creates: "{{ backup_git_repo_dir }}/.git"
+  changed_when: true
+  tags:
+    - backup
+    - backup_git
+
+# changed_when: false — настройка git config идемпотентна по сути,
+# но команда не возвращает признак изменения; подавляем ложные changed.
+- name: Настроить git user.name в репозитории
+  ansible.builtin.command:
+    cmd: git -C "{{ backup_git_repo_dir }}" config user.name "{{ backup_git_user_name }}"
+  changed_when: false
+  tags:
+    - backup
+    - backup_git
+
+- name: Настроить git user.email в репозитории
+  ansible.builtin.command:
+    cmd: git -C "{{ backup_git_repo_dir }}" config user.email "{{ backup_git_user_email }}"
+  changed_when: false
+  tags:
+    - backup
+    - backup_git
+
+# Скрипт создаёт подкаталоги в репозитории, копирует ключевые конфиги,
+# затем делает git commit только если есть изменения (diff --cached --quiet
+# возвращает 0 если нет staged-изменений — тогда commit пропускается).
+- name: Создать скрипт сбора и версионирования конфигураций IVA Mail
+  ansible.builtin.copy:
+    dest: /usr/local/bin/ivamail-config-backup.sh
+    mode: "0750"
+    owner: root
+    group: root
+    content: |
+      #!/bin/bash
+      # Сбор и версионирование конфигурационных файлов IVA Mail — сгенерировано Ansible
+      set -euo pipefail
+
+      REPO="{{ backup_git_repo_dir }}"
+
+      # Создать подкаталоги для разных компонентов
+      mkdir -p "${REPO}/haproxy"
+      mkdir -p "${REPO}/ivamail"
+      mkdir -p "${REPO}/system"
+
+      # --- HAProxy ---
+      if [ -f /etc/haproxy/haproxy.cfg ]; then
+        cp /etc/haproxy/haproxy.cfg "${REPO}/haproxy/haproxy.cfg"
+      fi
+
+      # --- IVA Mail: parameters.conf (режим запуска --backend / --frontend) ---
+      if [ -f /var/ivamail/parameters.conf ]; then
+        cp /var/ivamail/parameters.conf "${REPO}/ivamail/parameters.conf"
+      fi
+
+      # --- IVA Mail: каталог /etc/ivamail (конфигурационные файлы сервиса) ---
+      if [ -d /etc/ivamail ]; then
+        cp -r /etc/ivamail/. "${REPO}/ivamail/etc/"
+      fi
+
+      # --- Системные: строки fstab с NFS-монтированием ---
+      if grep -q 'nfs' /etc/fstab 2>/dev/null; then
+        grep 'nfs' /etc/fstab > "${REPO}/system/fstab.nfs"
+      fi
+
+      # --- Prometheus (на monitoring-хосте) ---
+      if [ -f /etc/prometheus/prometheus.yml ]; then
+        mkdir -p "${REPO}/prometheus"
+        cp /etc/prometheus/prometheus.yml "${REPO}/prometheus/prometheus.yml"
+      fi
+
+      # Добавить все изменения в индекс
+      git -C "${REPO}" add -A
+
+      # Сделать коммит только если есть staged-изменения
+      git -C "${REPO}" diff --cached --quiet || \
+        git -C "${REPO}" commit -m "config snapshot $(date +%Y-%m-%d_%H:%M:%S)"
+
+      echo "Config git snapshot completed: $(date)"
+  tags:
+    - backup
+    - backup_git
+
+- name: Добавить задание cron для git config snapshot
+  ansible.builtin.cron:
+    name: "IVA Mail config git snapshot"
+    hour: "{{ backup_git_cron_hour }}"
+    minute: "{{ backup_git_cron_minute }}"
+    job: "/usr/local/bin/ivamail-config-backup.sh >> /var/log/ivamail-config-backup.log 2>&1"
+    user: root
+  tags:
+    - backup
+    - backup_git

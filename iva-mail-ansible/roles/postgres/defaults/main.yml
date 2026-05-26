@@ -1,0 +1,20 @@
+---
+# defaults/main.yml — postgres role
+
+# Версия PostgreSQL (apt устанавливает именно эту ветку)
+postgres_version: "14"
+
+# База данных IVA Mail
+postgres_db: "ivamail"
+
+# Порт PostgreSQL
+postgres_port: 5432
+
+# Учётные данные берутся из ENV, инжектируемых Ansible
+# PG_ADMIN_USER и PG_ADMIN_PASSWORD задаются в переменные окружения
+postgres_user: "{{ lookup('env', 'PG_ADMIN_USER') | default('postgres', true) }}"
+postgres_password: "{{ lookup('env', 'PG_ADMIN_PASSWORD') | default('', true) }}"
+
+# Список бэкендов для pg_hba.conf — передаётся из плейбука
+# Формат: [{ip: "10.3.6.126"}, {ip: "10.3.6.127"}]
+postgres_backends: []

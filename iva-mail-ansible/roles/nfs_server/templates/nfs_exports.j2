@@ -1,0 +1,7 @@
+# /etc/exports — сгенерировано IVA Mail Deploy Toolkit
+# Управляется Ansible, ручные правки будут перезаписаны.
+# NFS v3 экспорт для кластера IVA Mail (nfsvers=3 обязателен на клиентах)
+
+{% for backend in nfs_backends %}
+{{ nfs_export_dir }}    {{ backend.ip }}({{ nfs_export_options }})
+{% endfor %}

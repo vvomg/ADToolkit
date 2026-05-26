@@ -1,0 +1,27 @@
+---
+# meta/main.yml — ivamail_frontend role
+
+galaxy_info:
+  role_name: ivamail_frontend
+  author: ADToolKit
+  description: >
+    Configure IVA Mail as a frontend (proxy) node: write parameters.conf with
+    ARGS="--frontend", set ownership on data dir, enable service in systemd.
+    Does NOT configure a database or NFS mount — frontends have no local storage.
+    Does NOT start the service — playbook controls the start sequence.
+  license: MIT
+  min_ansible_version: "2.12"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+
+# ivamail_common must run before ivamail_frontend so that the IVA Mail package
+# is already installed on the node before we write parameters.conf.
+dependencies:
+  - role: ivamail_common

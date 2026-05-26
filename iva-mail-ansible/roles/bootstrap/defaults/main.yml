@@ -1,0 +1,21 @@
+---
+# defaults/main.yml — bootstrap role
+
+# Timezone for all cluster hosts
+bootstrap_timezone: "Europe/Moscow"
+
+# Packages installed on every host in the cluster
+bootstrap_packages:
+  - python3
+  - python3-pip
+  - aptitude
+  - curl
+  - wget
+  - net-tools
+  - vim
+  - htop
+  - rsync
+  - nfs-common
+  - ca-certificates
+  - gnupg
+  - lsb-release

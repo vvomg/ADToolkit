@@ -1,0 +1,41 @@
+---
+# tasks/strategy_controller.yml — ivamail_common role
+# Стратегия "controller": копируем пакет с Ansible-контроллера (localhost) на целевой узел.
+# ansible.builtin.copy автоматически передаёт файл с контроллера на managed host.
+
+- name: Создать временный каталог для пакета IVA Mail
+  ansible.builtin.file:
+    path: "{{ ivamail_pkg_tmp_dir }}"
+    state: directory
+    mode: '0700'
+  tags:
+    - ivamail_common
+    - install
+
+- name: Скопировать пакет IVA Mail с Ansible-контроллера на целевой узел
+  ansible.builtin.copy:
+    src: "{{ package_controller_path }}"
+    dest: "{{ ivamail_pkg_tmp_dir }}/{{ package_controller_path | basename }}"
+    mode: '0600'
+  register: copied_package
+  tags:
+    - ivamail_common
+    - install
+
+- name: Установить пакет (стратегия controller)
+  ansible.builtin.include_tasks: do_install.yml
+  vars:
+    ivamail_pkg_path: "{{ copied_package.dest }}"
+  tags:
+    - ivamail_common
+    - install
+
+# Удаляем временный каталог с пакетом после успешной установки.
+# Пакет может весить несколько сотен МБ — очищаем диск сразу.
+- name: Удалить временный каталог с пакетом IVA Mail после установки
+  ansible.builtin.file:
+    path: "{{ ivamail_pkg_tmp_dir }}"
+    state: absent
+  tags:
+    - ivamail_common
+    - install

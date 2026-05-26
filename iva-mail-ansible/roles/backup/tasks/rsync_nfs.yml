@@ -1,0 +1,56 @@
+---
+# tasks/rsync_nfs.yml — резервное копирование NFS-шары через rsync
+# Устанавливает rsync, создаёт каталог назначения,
+# генерирует скрипт синхронизации и регистрирует задание cron.
+
+- name: Установить rsync
+  ansible.builtin.apt:
+    name: rsync
+    state: present
+  tags:
+    - backup
+    - backup_nfs
+
+- name: Создать каталог назначения для NFS-бэкапа
+  ansible.builtin.file:
+    path: "{{ backup_nfs_dest }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags:
+    - backup
+    - backup_nfs
+
+# --delete гарантирует зеркальную копию: файлы, удалённые на источнике,
+# будут удалены и в бэкапе, предотвращая неконтролируемый рост каталога.
+- name: Создать скрипт rsync-резервного копирования NFS
+  ansible.builtin.copy:
+    dest: /usr/local/bin/ivamail-nfs-backup.sh
+    mode: "0750"
+    owner: root
+    group: root
+    content: |
+      #!/bin/bash
+      # Резервное копирование NFS-шары IVA Mail — сгенерировано Ansible
+      set -euo pipefail
+
+      rsync -av --delete \
+        "{{ backup_nfs_src }}/" \
+        "{{ backup_nfs_dest }}/"
+
+      echo "NFS rsync completed: $(date)"
+  tags:
+    - backup
+    - backup_nfs
+
+- name: Добавить задание cron для rsync NFS
+  ansible.builtin.cron:
+    name: "IVA Mail NFS rsync backup"
+    hour: "{{ backup_nfs_cron_hour }}"
+    minute: "{{ backup_nfs_cron_minute }}"
+    job: "/usr/local/bin/ivamail-nfs-backup.sh >> /var/log/ivamail-nfs-backup.log 2>&1"
+    user: root
+  tags:
+    - backup
+    - backup_nfs

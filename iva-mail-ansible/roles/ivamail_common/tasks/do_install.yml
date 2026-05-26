@@ -1,0 +1,51 @@
+---
+# tasks/do_install.yml — ivamail_common role
+# Общая логика установки пакета. Вызывается всеми стратегиями.
+# Переменная ivamail_pkg_path обязательна — задаётся вызывающим файлом.
+# Поддерживаются форматы: deb (apt/dpkg) и rpm (yum/dnf).
+
+# Определяем формат пакета по расширению файла
+- name: Определить формат пакета (deb/rpm) по расширению
+  ansible.builtin.set_fact:
+    _pkg_is_deb: "{{ ivamail_pkg_path | lower | regex_search('\\.deb$') is truthy }}"
+    _pkg_is_rpm: "{{ ivamail_pkg_path | lower | regex_search('\\.rpm$') is truthy }}"
+  tags:
+    - ivamail_common
+    - install
+
+# --- DEB installation (Debian/Ubuntu) ---
+
+# ansible.builtin.apt с параметром deb= устанавливает локальный .deb файл через dpkg.
+# Модуль идемпотентен — повторная установка уже установленного пакета пропускается.
+- name: Установить deb-пакет ivamail (apt deb=)
+  ansible.builtin.apt:
+    deb: "{{ ivamail_pkg_path }}"
+    state: present
+  when: _pkg_is_deb
+  notify: restart ivamail
+  tags:
+    - ivamail_common
+    - install
+
+# --- RPM installation (RHEL/CentOS/AlmaLinux) ---
+
+# disable_gpg_check — пакет IVA Mail может не иметь подписанного GPG-ключа
+- name: Установить rpm-пакет ivamail (yum)
+  ansible.builtin.yum:
+    name: "{{ ivamail_pkg_path }}"
+    state: present
+    disable_gpg_check: true
+  when: _pkg_is_rpm
+  notify: restart ivamail
+  tags:
+    - ivamail_common
+    - install
+
+# Включаем сервис в автозапуск (idempotent — не запускаем, только enabled=true)
+- name: Включить ivamail в автозапуск (systemd)
+  ansible.builtin.service:
+    name: "{{ ivamail_service_name }}"
+    enabled: true
+  tags:
+    - ivamail_common
+    - install

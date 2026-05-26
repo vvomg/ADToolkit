@@ -1,0 +1,108 @@
+---
+# tasks/main.yml — bootstrap role
+# Базовая настройка всех хостов кластера IVA Mail
+
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+  tags:
+    - bootstrap
+    - packages
+
+- name: Install baseline packages
+  ansible.builtin.apt:
+    name: "{{ bootstrap_packages }}"
+    state: present
+  tags:
+    - bootstrap
+    - packages
+
+- name: Check if /usr/bin/python exists
+  ansible.builtin.stat:
+    path: /usr/bin/python
+  register: python_symlink_stat
+  tags:
+    - bootstrap
+    - packages
+
+- name: Create /usr/bin/python -> /usr/bin/python3 symlink
+  ansible.builtin.file:
+    src: /usr/bin/python3
+    dest: /usr/bin/python
+    state: link
+  when: not python_symlink_stat.stat.exists
+  tags:
+    - bootstrap
+    - packages
+
+- name: Set system timezone to {{ bootstrap_timezone }}
+  community.general.timezone:
+    name: "{{ bootstrap_timezone }}"
+  tags:
+    - bootstrap
+
+- name: Disable PasswordAuthentication in sshd_config
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?PasswordAuthentication'
+    line: 'PasswordAuthentication no'
+    state: present
+    validate: '/usr/sbin/sshd -t -f %s'
+  when: ansible_ssh_pass is not defined
+  notify: restart sshd
+  tags:
+    - bootstrap
+    - ssh
+
+- name: Set PermitRootLogin in sshd_config
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?PermitRootLogin'
+    line: 'PermitRootLogin prohibit-password'
+    state: present
+    validate: '/usr/sbin/sshd -t -f %s'
+  notify: restart sshd
+  tags:
+    - bootstrap
+    - ssh
+
+- name: Set ClientAliveInterval in sshd_config
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?ClientAliveInterval'
+    line: 'ClientAliveInterval 300'
+    state: present
+    validate: '/usr/sbin/sshd -t -f %s'
+  notify: restart sshd
+  tags:
+    - bootstrap
+    - ssh
+
+- name: Set ClientAliveCountMax in sshd_config
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?ClientAliveCountMax'
+    line: 'ClientAliveCountMax 3'
+    state: present
+    validate: '/usr/sbin/sshd -t -f %s'
+  notify: restart sshd
+  tags:
+    - bootstrap
+    - ssh
+
+- name: Check if UFW is installed
+  ansible.builtin.stat:
+    path: /usr/sbin/ufw
+  register: ufw_installed
+  tags:
+    - bootstrap
+
+- name: Stop and disable UFW (внутренняя сеть — внешний firewall не нужен)
+  ansible.builtin.service:
+    name: ufw
+    state: stopped
+    enabled: false
+  when: ufw_installed.stat.exists
+  tags:
+    - bootstrap

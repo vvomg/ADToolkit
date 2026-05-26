@@ -1,0 +1,99 @@
+---
+# tasks/main.yml — postgres role
+# Установка и настройка PostgreSQL на хосте хранилища (10.3.6.128)
+
+- name: Install PostgreSQL packages
+  ansible.builtin.apt:
+    name:
+      - postgresql
+      - postgresql-contrib
+      - libpq-dev
+      - python3-psycopg2
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  tags:
+    - postgres
+    - database
+
+- name: Start and enable postgresql service
+  ansible.builtin.service:
+    name: postgresql
+    state: started
+    enabled: true
+  tags:
+    - postgres
+    - database
+
+- name: Configure listen_addresses in postgresql.conf
+  ansible.builtin.lineinfile:
+    path: "/etc/postgresql/{{ postgres_version }}/main/postgresql.conf"
+    regexp: "^#?listen_addresses"
+    line: "listen_addresses = '*'"
+    state: present
+  notify: restart postgresql
+  tags:
+    - postgres
+    - database
+
+- name: Deploy pg_hba.conf from template
+  ansible.builtin.template:
+    src: pg_hba.conf.j2
+    dest: "/etc/postgresql/{{ postgres_version }}/main/pg_hba.conf"
+    owner: postgres
+    group: postgres
+    mode: '0640'
+  notify: restart postgresql
+  tags:
+    - postgres
+    - database
+
+- name: Wait for PostgreSQL to be available on port {{ postgres_port }}
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ postgres_port }}"
+    delay: 2
+    timeout: 60
+    state: started
+  tags:
+    - postgres
+    - database
+
+- name: Create ivamail database
+  community.postgresql.postgresql_db:
+    name: "{{ postgres_db }}"
+    state: present
+    encoding: UTF8
+    lc_collate: "ru_RU.UTF-8"
+    lc_ctype: "ru_RU.UTF-8"
+    template: template0
+  become: true
+  become_user: postgres
+  tags:
+    - postgres
+    - database
+
+- name: Set postgres admin user password (from ENV)
+  community.postgresql.postgresql_user:
+    name: "{{ postgres_user }}"
+    password: "{{ postgres_password }}"
+    state: present
+  become: true
+  become_user: postgres
+  no_log: true
+  tags:
+    - postgres
+    - database
+
+- name: Grant all privileges on ivamail database to postgres user
+  community.postgresql.postgresql_privs:
+    database: "{{ postgres_db }}"
+    roles: "{{ postgres_user }}"
+    type: database
+    privs: ALL
+    state: present
+  become: true
+  become_user: postgres
+  tags:
+    - postgres
+    - database

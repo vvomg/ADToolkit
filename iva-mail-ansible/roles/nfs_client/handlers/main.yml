@@ -1,0 +1,4 @@
+---
+# handlers/main.yml — nfs_client role
+# nfs_client не имеет handlers — монтирование управляется через ansible.posix.mount.
+# Файл сохраняется для единообразия структуры роли.

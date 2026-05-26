@@ -1,0 +1,46 @@
+---
+# tasks/configure.yml — ivamail_frontend role
+# Конфигурация узла IVA Mail в режиме frontend:
+#   - запись parameters.conf с ARGS="--frontend"
+#   - рекурсивный chown ivamail:ivamail на /var/ivamail
+#   - включение сервиса в автозапуск (без запуска — плейбук управляет стартом)
+
+# parameters.conf — ключевой файл режима запуска.
+# ARGS="--frontend" переводит IVA Mail в режим прокси-узла кластера.
+# Владелец root:root — файл не должен изменяться самим процессом ivamail.
+- name: Записать parameters.conf с ARGS="--frontend"
+  ansible.builtin.copy:
+    dest: "{{ ivamail_parameters_conf }}"
+    content: "ARGS=\"--frontend\"\n"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart ivamail
+  tags:
+    - ivamail_frontend
+    - configure
+
+# Рекурсивно выставляем владельца ivamail:ivamail на весь каталог данных.
+# state: directory + recurse: true изменяет права без пересоздания каталога,
+# что безопасно для уже существующего /var/ivamail с данными.
+- name: Установить владельца ivamail:ivamail рекурсивно на {{ ivamail_data_dir }}
+  ansible.builtin.file:
+    path: "{{ ivamail_data_dir }}"
+    owner: "{{ ivamail_user }}"
+    group: "{{ ivamail_group }}"
+    state: directory
+    recurse: true
+  tags:
+    - ivamail_frontend
+    - configure
+
+# Включаем сервис в автозапуск. НЕ запускаем здесь —
+# плейбук 03-frontends.yml управляет порядком старта: фронтенды
+# должны стартовать только после того, как бэкенды сформировали кластер.
+- name: Включить ivamail.service в автозапуск (systemd)
+  ansible.builtin.service:
+    name: "{{ ivamail_service_name }}"
+    enabled: true
+  tags:
+    - ivamail_frontend
+    - configure

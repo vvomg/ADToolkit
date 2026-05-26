@@ -1,0 +1,10 @@
+---
+galaxy_info:
+  role_name: ivamail_config
+  description: >
+    Управление конфигурацией IVA Mail через CMD-протокол (порт 106):
+    снятие снимков, применение изменений, откат к git-тегу.
+  license: MIT
+  min_ansible_version: "2.14"
+
+dependencies: []

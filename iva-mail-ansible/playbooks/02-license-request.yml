@@ -3,22 +3,22 @@
 # 02-license-request.yml — Генерация запроса лицензии IVA Mail (Итерация 3)
 # =============================================================================
 # Порядок плеев:
-#   Play 1 (localhost)  — строит динамический инвентарий из Survey AWX
+#   Play 1 (localhost)  — строит динамический инвентарий из extra_vars
 #   Play 2 (backends)   — run_once на be1 — LicenseRequest через CMD,
-#                         сохранение на контроллер, вывод в лог задания AWX
+#                         сохранение на контроллер, вывод в вывод Ansible
 #
-# AWX Credentials: IVA Mail SSH Key + IVA Mail CMD
-# Запуск вне AWX:
+# Переменные окружения: IVAMAIL_CMD_USER, IVAMAIL_CMD_PASSWORD
+# Запуск напрямую:
 #   ansible-playbook playbooks/02-license-request.yml \
 #     -e @tests/survey_vars.yml \
 #     -e IVAMAIL_CMD_USER=admin -e IVAMAIL_CMD_PASSWORD=admin
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# PLAY 1: Динамический инвентарий из Survey AWX
+# PLAY 1: Динамический инвентарий из extra_vars
 # (дублируется из предыдущих плейбуков — каждый плейбук самодостаточен)
 # -----------------------------------------------------------------------------
-- name: Построить динамический инвентарий из Survey AWX
+- name: Построить динамический инвентарий из extra_vars
   hosts: localhost
   gather_facts: no
   tasks:
@@ -109,7 +109,7 @@
 # Роль ivamail_license с action=request:
 #   1. Запускает cmd_client.py на контроллере (delegate_to: localhost)
 #   2. Сохраняет тело запроса в /opt/ivamail/license_requests/ на контроллере
-#   3. Выводит содержимое запроса в лог задания AWX для передачи вендору
+#   3. Выводит содержимое запроса в вывод Ansible для передачи вендору
 #
 # gather_facts: yes — роль использует ansible_date_time.epoch для имени файла.
 # -----------------------------------------------------------------------------
@@ -119,9 +119,9 @@
   run_once: true   # выполняем только на первом хосте группы (be1)
 
   pre_tasks:
-    - name: Создать каталог для запросов лицензий на контроллере AWX
+    - name: Создать каталог для запросов лицензий на Ansible-контроллере
       # Каталог должен существовать до записи файла запроса ролью.
-      # mode 0700 — только пользователь AWX имеет доступ к файлам лицензий.
+      # mode 0700 — только пользователь ansible имеет доступ к файлам лицензий.
       ansible.builtin.file:
         path:  "/opt/ivamail/license_requests"
         state: directory
@@ -145,10 +145,10 @@
       ansible.builtin.debug:
         msg: |
           СЛЕДУЮЩИЙ ШАГ:
-          1. Скачайте файл запроса из /opt/ivamail/license_requests/ на контроллере AWX
+          1. Скачайте файл запроса из /opt/ivamail/license_requests/ на Ansible-контроллере
           2. Отправьте его вендору IVA Mail для получения лицензии
-          3. Сохраните полученный файл лицензии (.txt) на контроллере AWX
-          4. Нажмите Approve в AWX Workflow для продолжения
+          3. Сохраните полученный файл лицензии (.txt) на Ansible-контроллере
+          4. Запустите плейбук 02-license-install-and-restart.yml вручную
       run_once: true
       tags:
         - ivamail_license

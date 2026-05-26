@@ -1,0 +1,22 @@
+---
+# meta/main.yml — bootstrap role
+
+galaxy_info:
+  role_name: bootstrap
+  author: iva-mail-deploy
+  description: >
+    Baseline setup for all IVA Mail cluster hosts —
+    packages, SSH hardening, timezone, Python symlink.
+  license: MIT
+  min_ansible_version: "2.12"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+
+dependencies: []

@@ -1,0 +1,35 @@
+---
+# defaults/main.yml — ivamail_backend role
+
+# Имя systemd-сервиса IVA Mail
+ivamail_service_name: "ivamail"
+
+# Рабочий каталог IVA Mail
+ivamail_data_dir: "/var/ivamail"
+
+# Файл параметров запуска. Содержимое: ARGS="--backend"
+ivamail_parameters_conf: "/var/ivamail/parameters.conf"
+
+# Системный пользователь и группа IVA Mail (создаются пакетом при установке)
+ivamail_user: "ivamail"
+ivamail_group: "ivamail"
+
+# Путь к скрипту инициализации схемы БД (поставляется вместе с пакетом IVA Mail)
+ivamail_db_setup_script: "/opt/ivamail/ivamail-db-setup.sh"
+
+# Маркер-файл: предотвращает повторный запуск ivamail-db-setup.sh при следующих прогонах
+ivamail_db_setup_done_marker: "/var/ivamail/.db_setup_done"
+
+# --- Параметры подключения к PostgreSQL для ivamail-db-setup.sh ---
+# Хост сервера хранилища (PostgreSQL + NFS)
+ivamail_db_pg_host: "{{ storage_host | default('10.3.6.128') }}"
+
+# Порт PostgreSQL
+ivamail_db_pg_port: "{{ postgres_port | default(5432) }}"
+
+# Имя базы данных IVA Mail
+ivamail_db_pg_db: "{{ postgres_db | default('ivamail') }}"
+
+# Учётные данные задаются через переменные окружения через переменные окружения Credential
+ivamail_db_pg_user: "{{ lookup('env', 'PG_ADMIN_USER') | default('postgres', true) }}"
+ivamail_db_pg_password: "{{ lookup('env', 'PG_ADMIN_PASSWORD') | default('', true) }}"

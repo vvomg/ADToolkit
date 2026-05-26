@@ -3,23 +3,23 @@
 # 07-config-dump.yml — Снимок конфигурации IVA Mail в git-репозиторий
 # =============================================================================
 # Порядок плеев:
-#   Play 1 (localhost)  — динамический инвентарий из Survey AWX
-#   Play 2 (backends)   — config-dump через CMD → /tmp на AWX контроллере
+#   Play 1 (localhost)  — динамический инвентарий из extra_vars
+#   Play 2 (backends)   — config-dump через CMD → /tmp на Ansible-контроллере
 #   Play 3 (monitoring) — git add + commit + tag снимка конфигурации
 #
-# AWX Credentials: IVA Mail SSH Key + IVA Mail CMD
-# Survey vars: backend_hosts, monitoring_host, config_tag_name (опц.), config_modules (опц.)
+# Переменные окружения: IVAMAIL_CMD_USER, IVAMAIL_CMD_PASSWORD
+# Extra vars: backend_hosts, monitoring_host, config_tag_name (опц.), config_modules (опц.)
 #
-# Запуск вне AWX:
+# Запуск напрямую:
 #   IVAMAIL_CMD_USER=admin IVAMAIL_CMD_PASSWORD=secret \
 #   ansible-playbook playbooks/07-config-dump.yml \
 #     -e @tests/survey_vars.yml
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# PLAY 1: Динамический инвентарий из Survey AWX
+# PLAY 1: Динамический инвентарий из extra_vars
 # -----------------------------------------------------------------------------
-- name: Построить динамический инвентарий из Survey AWX
+- name: Построить динамический инвентарий из extra_vars
   hosts: localhost
   gather_facts: no
   tasks:
@@ -54,7 +54,7 @@
       tags: always
 
 # -----------------------------------------------------------------------------
-# PLAY 2: Снимок конфигурации бэкендов через CMD → /tmp на AWX контроллере
+# PLAY 2: Снимок конфигурации бэкендов через CMD → /tmp на Ansible-контроллере
 # -----------------------------------------------------------------------------
 - name: Снять конфиг-дамп всех бэкендов IVA Mail через CMD
   hosts: backends
@@ -63,7 +63,7 @@
 
   tasks:
 
-    - name: Создать временный каталог дампа на AWX контроллере
+    - name: Создать временный каталог дампа на Ansible-контроллере
       ansible.builtin.file:
         path: "/tmp/ivamail-dump-{{ inventory_hostname }}"
         state: directory
@@ -127,7 +127,7 @@
       tags:
         - config_dump
 
-    - name: Скопировать JSON-дампы из AWX контроллера в git-репозиторий
+    - name: Скопировать JSON-дампы из Ansible-контроллера в git-репозиторий
       ansible.builtin.copy:
         src:  "/tmp/ivamail-dump-{{ item }}/"
         dest: "/opt/ivamail-config-repo/cmd-configs/{{ item }}/"
@@ -136,7 +136,7 @@
       tags:
         - config_dump
 
-    - name: Удалить временные каталоги с AWX контроллера
+    - name: Удалить временные каталоги с Ansible-контроллера
       ansible.builtin.file:
         path: "/tmp/ivamail-dump-{{ item }}"
         state: absent

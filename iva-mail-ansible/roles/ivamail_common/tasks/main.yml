@@ -1,0 +1,10 @@
+---
+# tasks/main.yml — ivamail_common role
+# Установка пакета IVA Mail на узел кластера.
+# Стратегия доставки задаётся переменной package_source_type (extra_vars).
+
+- name: "Выбрать стратегию доставки пакета IVA Mail ({{ package_source_type }})"
+  ansible.builtin.include_tasks: "strategy_{{ package_source_type }}.yml"
+  tags:
+    - ivamail_common
+    - install

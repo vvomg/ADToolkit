@@ -1,0 +1,11 @@
+---
+# Зависимости Ansible Collections.
+# Установить перед запуском плейбуков:
+#   ansible-galaxy collection install -r requirements.yml
+collections:
+  - name: ansible.posix        # mount, sysctl, firewalld и пр.
+    version: ">=1.5.0"
+  - name: community.postgresql # управление кластером PostgreSQL
+    version: ">=3.0.0"
+  - name: community.general   # утилиты: dict_kv, ini_file, и пр.
+    version: ">=7.0.0"

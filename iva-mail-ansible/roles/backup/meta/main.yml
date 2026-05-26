@@ -1,0 +1,11 @@
+---
+galaxy_info:
+  author: ADToolKit
+  description: Backup automation for IVA Mail cluster (pg_dump, rsync NFS, git config-repo)
+  min_ansible_version: "2.12"
+  platforms:
+    - name: Ubuntu
+      versions: [all]
+    - name: Debian
+      versions: [all]
+dependencies: []

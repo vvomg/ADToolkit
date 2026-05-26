@@ -1,0 +1,21 @@
+---
+# defaults/main.yml — nfs_client role
+
+# IP хоста хранилища с NFS-сервером
+nfs_server_ip: "10.3.6.128"
+
+# Экспортируемый каталог на NFS-сервере (должен совпадать с nfs_server.nfs_export_dir)
+nfs_export_dir: "/srv/nfs/nfsshared"
+
+# Точка монтирования на бэкенде
+nfs_mount_point: "/mnt/mailshare"
+
+# Рабочий каталог IVA Mail
+ivamail_data_dir: "/var/ivamail"
+
+# Симлинк Cluster — IVA Mail ожидает этот путь для доступа к общему хранилищу
+ivamail_cluster_link: "/var/ivamail/Cluster"
+
+# Системный пользователь и группа для IVA Mail
+ivamail_user: "ivamail"
+ivamail_group: "ivamail"

@@ -1,0 +1,23 @@
+---
+# defaults/main.yml — haproxy role
+
+# CSV-строка фронтендов, передаётся через extra_vars (переменная frontend_hosts).
+# Пример: "10.3.6.102,10.3.6.103"
+haproxy_frontend_hosts: "{{ frontend_hosts | default('') }}"
+
+# Порты, на которых HAProxy принимает клиентский трафик
+haproxy_imap_port:  143
+haproxy_smtp_port:  25
+haproxy_http_port:  80
+haproxy_https_port: 443
+
+# Алгоритм балансировки: roundrobin | leastconn | source
+haproxy_balance: roundrobin
+
+# Таймауты TCP-соединений
+haproxy_timeout_connect: "5s"
+haproxy_timeout_client:  "30s"
+haproxy_timeout_server:  "30s"
+
+# Максимальное число одновременных соединений (global + defaults)
+haproxy_maxconn: 4096

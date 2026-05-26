@@ -1,0 +1,84 @@
+---
+# tasks/pg_dump.yml — резервное копирование PostgreSQL
+# Устанавливает postgresql-client, создаёт .pgpass (пароль не в скрипте!),
+# генерирует скрипт pg_dump и регистрирует задание cron.
+
+# postgresql-client ставится первым, чтобы pg_dump был доступен сразу.
+- name: Убедиться что postgresql-client установлен (для pg_dump)
+  ansible.builtin.apt:
+    name: postgresql-client
+    state: present
+  tags:
+    - backup
+    - backup_pg
+
+- name: Создать каталог для дампов PostgreSQL
+  ansible.builtin.file:
+    path: "{{ backup_pg_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  tags:
+    - backup
+    - backup_pg
+
+# Файл .pgpass хранит пароль вне скрипта — pg_dump подхватывает его автоматически.
+# Формат: host:port:dbname:user:password (mode 0600 обязателен, иначе pg игнорирует).
+# no_log: true — содержит пароль.
+- name: Создать /root/.pgpass для аутентификации pg_dump без пароля в скрипте
+  ansible.builtin.copy:
+    dest: /root/.pgpass
+    content: "{{ backup_pg_host }}:{{ backup_pg_port }}:{{ backup_pg_db }}:{{ backup_pg_user }}:{{ backup_pg_password }}\n"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  tags:
+    - backup
+    - backup_pg
+
+# Скрипт не содержит пароль — PGPASSWORD не используется.
+# pg_dump читает учётные данные из /root/.pgpass автоматически.
+- name: Создать скрипт резервного копирования PostgreSQL
+  ansible.builtin.copy:
+    dest: /usr/local/bin/ivamail-pg-backup.sh
+    mode: "0750"
+    owner: root
+    group: root
+    content: |
+      #!/bin/bash
+      # Резервное копирование БД ivamail — сгенерировано Ansible
+      # Пароль читается из /root/.pgpass (не хранится в этом скрипте)
+      set -euo pipefail
+
+      BACKUP_DIR="{{ backup_pg_dir }}"
+      DATE=$(date +%Y-%m-%d_%H%M%S)
+      DUMP_FILE="${BACKUP_DIR}/ivamail_${DATE}.sql.gz"
+
+      pg_dump \
+        -h "{{ backup_pg_host }}" \
+        -p "{{ backup_pg_port }}" \
+        -U "{{ backup_pg_user }}" \
+        "{{ backup_pg_db }}" \
+      | gzip > "${DUMP_FILE}"
+
+      # Удалить дампы старше retention_days дней
+      find "${BACKUP_DIR}" -name "ivamail_*.sql.gz" \
+        -mtime +{{ backup_pg_retention_days }} -delete
+
+      echo "Backup completed: ${DUMP_FILE}"
+  tags:
+    - backup
+    - backup_pg
+
+- name: Добавить задание cron для pg_dump
+  ansible.builtin.cron:
+    name: "IVA Mail PostgreSQL backup"
+    hour:   "{{ backup_pg_cron_hour }}"
+    minute: "{{ backup_pg_cron_minute }}"
+    job: "/usr/local/bin/ivamail-pg-backup.sh >> /var/log/ivamail-pg-backup.log 2>&1"
+    user: root
+  tags:
+    - backup
+    - backup_pg

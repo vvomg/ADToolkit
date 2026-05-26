@@ -1,0 +1,22 @@
+---
+# tasks/main.yml — monitoring role
+# Устанавливает полный стек мониторинга: Prometheus, Grafana, Graylog.
+# Порядок важен: MongoDB и OpenSearch запускаются до Graylog.
+
+- name: Установить и настроить Prometheus
+  ansible.builtin.include_tasks: prometheus.yml
+  tags:
+    - monitoring
+    - prometheus
+
+- name: Установить и настроить Grafana
+  ansible.builtin.include_tasks: grafana.yml
+  tags:
+    - monitoring
+    - grafana
+
+- name: Установить и настроить Graylog (MongoDB + OpenSearch + Graylog)
+  ansible.builtin.include_tasks: graylog.yml
+  tags:
+    - monitoring
+    - graylog

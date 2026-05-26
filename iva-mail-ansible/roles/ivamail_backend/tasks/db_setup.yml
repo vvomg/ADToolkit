@@ -1,0 +1,82 @@
+---
+# tasks/db_setup.yml — ivamail_backend role
+# Инициализация схемы базы данных IVA Mail через ivamail-db-setup.sh.
+# Идемпотентность обеспечивается маркер-файлом ivamail_db_setup_done_marker:
+# при повторном запуске плейбука скрипт не выполняется.
+
+# Проверяем что скрипт инициализации установлен вместе с пакетом IVA Mail
+- name: Проверить наличие ivamail-db-setup.sh на целевом узле
+  ansible.builtin.stat:
+    path: "{{ ivamail_db_setup_script }}"
+  register: db_setup_script_stat
+  tags:
+    - ivamail_backend
+    - db_setup
+
+- name: Убедиться что скрипт инициализации БД существует
+  ansible.builtin.assert:
+    that:
+      - db_setup_script_stat.stat.exists
+      - db_setup_script_stat.stat.isreg
+    fail_msg: >
+      Скрипт {{ ivamail_db_setup_script }} не найден на {{ inventory_hostname }}.
+      Убедитесь что пакет IVA Mail установлен ролью ivamail_common.
+  tags:
+    - ivamail_backend
+    - db_setup
+
+# Маркер-файл создаётся в конце этого блока и предотвращает повторный запуск
+- name: Проверить маркер завершения инициализации БД
+  ansible.builtin.stat:
+    path: "{{ ivamail_db_setup_done_marker }}"
+  register: db_setup_done
+  tags:
+    - ivamail_backend
+    - db_setup
+
+# ivamail-db-setup.sh — интерактивный скрипт, принимает параметры через stdin.
+# Ответы подаём через printf в формате: host\nport\ndb\nuser\npass\n
+# no_log=true — скрывает пароль из вывода Ansible/Ansible
+- name: Запустить ivamail-db-setup.sh (инициализация схемы БД)
+  ansible.builtin.shell:
+    cmd: >
+      printf "{{ ivamail_db_pg_host }}\n{{ ivamail_db_pg_port }}\n{{ ivamail_db_pg_db }}\n{{ ivamail_db_pg_user }}\n{{ ivamail_db_pg_password }}\n"
+      | {{ ivamail_db_setup_script }}
+  register: db_setup_result
+  no_log: true
+  failed_when: db_setup_result.rc != 0
+  changed_when: true
+  when: not db_setup_done.stat.exists
+  tags:
+    - ivamail_backend
+    - db_setup
+
+# Выводим stdout только при ошибке для диагностики (пароль уже не виден благодаря no_log выше)
+- name: Отладка вывода скрипта инициализации (только при ошибке)
+  ansible.builtin.debug:
+    var: db_setup_result.stdout_lines
+  when:
+    - not db_setup_done.stat.exists
+    - db_setup_result is defined
+    - db_setup_result.rc is defined
+    - db_setup_result.rc != 0
+  tags:
+    - ivamail_backend
+    - db_setup
+
+# Создаём маркер после успешного завершения скрипта — предотвращает повторный запуск
+- name: Создать маркер завершения инициализации БД
+  ansible.builtin.file:
+    path: "{{ ivamail_db_setup_done_marker }}"
+    state: touch
+    owner: root
+    group: root
+    mode: '0600'
+  when:
+    - not db_setup_done.stat.exists
+    - db_setup_result is defined
+    - db_setup_result.rc is defined
+    - db_setup_result.rc == 0
+  tags:
+    - ivamail_backend
+    - db_setup

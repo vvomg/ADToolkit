@@ -1,0 +1,19 @@
+---
+# meta/main.yml — haproxy role
+
+galaxy_info:
+  author: ADToolKit
+  description: HAProxy load balancer for IVA Mail frontends
+  license: MIT
+  min_ansible_version: "2.12"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+
+dependencies: []

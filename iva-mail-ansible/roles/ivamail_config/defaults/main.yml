@@ -1,0 +1,39 @@
+---
+# defaults/main.yml — ivamail_config role
+# Управление конфигурацией IVA Mail через CMD-протокол (порт 106):
+#   dump     — снимок текущей конфигурации в JSON → git-репозиторий
+#   apply    — применить конфигурацию из JSON-файлов
+#   rollback — откатить к снимку по git-тегу + перезапуск
+
+# Действие роли: dump | apply | rollback
+ivamail_config_action: "dump"
+
+# Список модулей IVA Mail для дампа (через запятую)
+# Расширить при необходимости: LDAP, AntiSpam, Antivirus, ...
+ivamail_config_modules: "Cluster,CMD,SMTP,IMAP,POP3,WebAccess,AntiSpam,Antivirus"
+
+# Каталог для JSON-снимков конфигурации в git-репозитории
+# Структура: <dump_dir>/<backend_ip>/module_*.json, domain_*.json
+ivamail_config_dump_dir: "{{ backup_git_repo_dir | default('/opt/ivamail-config-repo') }}/cmd-configs"
+
+# Хост git-репозитория конфигураций (обычно — мониторинг)
+ivamail_config_git_host: "{{ monitoring_host | default('localhost') }}"
+
+# Префикс для git-тегов снимков конфигурации
+ivamail_config_git_tag_prefix: "config"
+
+# Имя тега для нового снимка (переопределяется через extra_vars)
+# Формат по умолчанию: config-YYYY-MM-DD
+ivamail_config_tag_name: ""
+
+# Git-тег для отката (для action=rollback, переопределяется через extra_vars)
+ivamail_config_rollback_tag: ""
+
+# Каталог на Ansible-контроллере для временного хранения файлов при откате
+ivamail_config_restore_tmp_dir: "/tmp/ivamail-restore-{{ ivamail_config_rollback_tag }}"
+
+# Перезапускать IVA Mail после восстановления конфигурации?
+ivamail_config_restart_after_restore: true
+
+# Таймаут CMD-сессии
+ivamail_config_cmd_timeout: 30

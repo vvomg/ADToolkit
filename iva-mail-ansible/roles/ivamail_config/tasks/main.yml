@@ -1,0 +1,29 @@
+---
+# tasks/main.yml — ivamail_config role
+# Диспетчер: выбирает субзадачу по переменной ivamail_config_action.
+#
+# Значения ivamail_config_action:
+#   dump     — снять снимок конфигурации через CMD → JSON → git
+#   apply    — применить конфигурацию из JSON-файлов → CMD
+#   rollback — откат к git-тегу + применение + опциональный рестарт
+
+- name: Снять снимок конфигурации IVA Mail (CMD → JSON → git)
+  ansible.builtin.include_tasks: dump.yml
+  when: ivamail_config_action | default('dump') == 'dump'
+  tags:
+    - ivamail_config
+    - config_dump
+
+- name: Применить конфигурацию IVA Mail из JSON-файлов
+  ansible.builtin.include_tasks: apply.yml
+  when: ivamail_config_action | default('dump') == 'apply'
+  tags:
+    - ivamail_config
+    - config_apply
+
+- name: Откатить конфигурацию IVA Mail к снимку git
+  ansible.builtin.include_tasks: rollback.yml
+  when: ivamail_config_action | default('dump') == 'rollback'
+  tags:
+    - ivamail_config
+    - config_rollback

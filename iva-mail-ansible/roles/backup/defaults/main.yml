@@ -1,0 +1,42 @@
+---
+# defaults/main.yml — backup role
+
+# PostgreSQL
+backup_pg_host: "{{ ivamail_db_pg_host | default('127.0.0.1') }}"
+backup_pg_port: "{{ postgres_port | default(5432) }}"
+backup_pg_db:   "{{ ivamail_db_pg_db   | default('ivamail') }}"
+backup_pg_user: "{{ ivamail_db_pg_user | default('postgres') }}"
+# Пароль инжектируется через переменной окружения PG_ADMIN_PASSWORD или extra_vars
+backup_pg_password: "{{ lookup('env', 'PG_ADMIN_PASSWORD') | default('') }}"
+
+# Каталог для хранения дампов PostgreSQL (на storage-хосте)
+backup_pg_dir: /opt/backups/postgres
+
+# Количество дней хранения дампов (старше удаляются)
+backup_pg_retention_days: 7
+
+# NFS
+# Исходный каталог NFS-шары на storage-хосте (локальный путь сервера)
+backup_nfs_src: "{{ nfs_export_dir | default('/srv/nfs/nfsshared') }}"
+backup_nfs_dest: /opt/backups/nfs
+
+# Git config-repo
+backup_git_repo_dir: /opt/ivamail-config-repo
+backup_git_user_name: "Ansible Backup"
+backup_git_user_email: "ansible@ivamail.local"
+
+# Расписания cron (формат cron)
+backup_pg_cron_hour:   "2"
+backup_pg_cron_minute: "0"
+backup_nfs_cron_hour:   "3"
+backup_nfs_cron_minute: "0"
+backup_git_cron_hour:   "4"
+backup_git_cron_minute: "0"
+
+# Флаги включения субзадач (переопределяются в playbook vars).
+# Позволяют запускать только нужные субзадачи без фильтрации по --tags CLI.
+# Storage-хост: backup_pg_enabled=true, backup_nfs_enabled=true, backup_git_enabled=false
+# Monitoring-хост: backup_pg_enabled=false, backup_nfs_enabled=false, backup_git_enabled=true
+backup_pg_enabled:  true
+backup_nfs_enabled: true
+backup_git_enabled: true

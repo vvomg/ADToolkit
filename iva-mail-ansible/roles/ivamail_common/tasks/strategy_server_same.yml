@@ -1,0 +1,32 @@
+---
+# tasks/strategy_server_same.yml — ivamail_common role
+# Стратегия "server_same": пакет уже лежит по единому пути на каждом узле.
+# Ничего не копируем — только проверяем наличие файла и устанавливаем.
+
+- name: Проверить наличие пакета по единому пути (стратегия server_same)
+  ansible.builtin.stat:
+    path: "{{ package_server_path }}"
+  register: pkg_stat
+  tags:
+    - ivamail_common
+    - install
+
+- name: Убедиться что файл пакета существует на сервере
+  ansible.builtin.assert:
+    that:
+      - pkg_stat.stat.exists
+      - pkg_stat.stat.isreg
+    fail_msg: >
+      Пакет IVA Mail не найден на {{ inventory_hostname }}: {{ package_server_path }}.
+      Убедитесь что файл доступен по указанному пути на каждом целевом узле.
+  tags:
+    - ivamail_common
+    - install
+
+- name: Установить пакет (стратегия server_same)
+  ansible.builtin.include_tasks: do_install.yml
+  vars:
+    ivamail_pkg_path: "{{ package_server_path }}"
+  tags:
+    - ivamail_common
+    - install

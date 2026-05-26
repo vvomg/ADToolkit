@@ -1,0 +1,7 @@
+---
+# handlers/main.yml — ivamail_frontend role
+
+- name: restart ivamail
+  ansible.builtin.service:
+    name: "{{ ivamail_service_name }}"
+    state: restarted

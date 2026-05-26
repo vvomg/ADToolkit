@@ -1,0 +1,80 @@
+---
+# tasks/dump.yml — снимок конфигурации IVA Mail через CMD → JSON → git
+#
+# Для каждого бэкенда:
+#   1. cmd_client.py config-dump на Ansible-контроллере → /tmp/ivamail-dump-IP/
+#   2. Скопировать JSON-файлы на хост git-репозитория (monitoring)
+#   3. Git add + commit + tag на мониторинг-хосте
+#
+# Запускается через delegate_to: localhost (все CMD-операции на Ansible-контроллере).
+# Этот файл включается из main.yml при ivamail_config_action == 'dump'.
+# Целевой хост в плейбуке: backends.
+
+# Шаг 1: создать временный каталог на Ansible-контроллере
+- name: Создать временный каталог дампа конфигурации на Ansible-контроллере
+  ansible.builtin.file:
+    path: "/tmp/ivamail-dump-{{ inventory_hostname }}"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+  tags:
+    - ivamail_config
+    - config_dump
+
+# Шаг 2: запустить config-dump через CMD (делегируем на localhost)
+# no_log: true — environment содержит учётные данные CMD
+- name: "Снять конфиг-дамп IVA Mail через CMD ({{ inventory_hostname }})"
+  ansible.builtin.script:
+    cmd: >-
+      scripts/cmd_client.py
+      --host {{ inventory_hostname }}
+      --port {{ cmd_port | default(106) }}
+      --action config-dump
+      --output-dir /tmp/ivamail-dump-{{ inventory_hostname }}
+      --modules {{ ivamail_config_modules }}
+      --timeout {{ ivamail_config_cmd_timeout }}
+  environment:
+    IVAMAIL_CMD_USER: "{{ lookup('env', 'IVAMAIL_CMD_USER') }}"
+    IVAMAIL_CMD_PASSWORD: "{{ lookup('env', 'IVAMAIL_CMD_PASSWORD') }}"
+  delegate_to: localhost
+  changed_when: true
+  no_log: true
+  register: _config_dump_result
+  tags:
+    - ivamail_config
+    - config_dump
+
+# Шаг 3: создать каталог в git-репозитории на мониторинг-хосте
+- name: "Создать каталог конфигурации в git-репозитории для {{ inventory_hostname }}"
+  ansible.builtin.file:
+    path: "{{ ivamail_config_dump_dir }}/{{ inventory_hostname }}"
+    state: directory
+    mode: "0750"
+    owner: root
+    group: root
+  delegate_to: "{{ ivamail_config_git_host }}"
+  tags:
+    - ivamail_config
+    - config_dump
+
+# Шаг 4: скопировать JSON-файлы с Ansible-контроллера в git-репозиторий
+# ansible.builtin.copy с src на контроллере → dest на мониторинг-хосте
+- name: "Скопировать JSON-дамп в git-репозиторий ({{ inventory_hostname }})"
+  ansible.builtin.copy:
+    src: "/tmp/ivamail-dump-{{ inventory_hostname }}/"
+    dest: "{{ ivamail_config_dump_dir }}/{{ inventory_hostname }}/"
+    mode: "0640"
+  delegate_to: "{{ ivamail_config_git_host }}"
+  tags:
+    - ivamail_config
+    - config_dump
+
+# Шаг 5: удалить временный каталог с Ansible-контроллера
+- name: Удалить временный каталог дампа с Ansible-контроллера
+  ansible.builtin.file:
+    path: "/tmp/ivamail-dump-{{ inventory_hostname }}"
+    state: absent
+  delegate_to: localhost
+  tags:
+    - ivamail_config
+    - config_dump

@@ -1,0 +1,9 @@
+---
+# handlers/main.yml — nfs_server role
+
+# exportfs -ra перечитывает /etc/exports без перезапуска сервиса NFS.
+# Используем command — нет соответствующего Ansible-модуля для этой операции.
+# changed_when: true отражает реальное изменение экспортов на каждый вызов handler.
+- name: reload nfs exports
+  ansible.builtin.command: exportfs -ra
+  changed_when: true

@@ -1,0 +1,11 @@
+---
+galaxy_info:
+  author: ADToolKit
+  description: Monitoring stack — Prometheus, Grafana, Graylog for IVA Mail cluster
+  min_ansible_version: "2.12"
+  platforms:
+    - name: Ubuntu
+      versions: [all]
+    - name: Debian
+      versions: [all]
+dependencies: []

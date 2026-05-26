@@ -1,0 +1,24 @@
+---
+# meta/main.yml — nfs_client role
+
+galaxy_info:
+  role_name: nfs_client
+  author: iva-mail-deploy
+  description: >
+    Mount the NFS share on IVA Mail backend hosts using NFSv3 (required).
+    Creates ivamail system user and the /var/ivamail/Cluster symlink.
+  license: MIT
+  min_ansible_version: "2.12"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+
+# nfs_server must be applied to the storage host before nfs_client runs on backends.
+# Playbook ordering is the mechanism — not a role dependency.
+dependencies: []

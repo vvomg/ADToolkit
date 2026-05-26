@@ -1,0 +1,26 @@
+---
+# meta/main.yml — ivamail_backend role
+
+galaxy_info:
+  role_name: ivamail_backend
+  author: iva-mail-deploy
+  description: >
+    Configure IVA Mail as a backend node: run DB initialisation script,
+    write parameters.conf with ARGS="--backend", set ownership on data dir.
+    Does NOT start the service — playbook controls the start sequence.
+  license: MIT
+  min_ansible_version: "2.12"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+
+# ivamail_common must run before ivamail_backend so that the IVA Mail package
+# (including ivamail-db-setup.sh) is already installed on the node.
+dependencies:
+  - role: ivamail_common

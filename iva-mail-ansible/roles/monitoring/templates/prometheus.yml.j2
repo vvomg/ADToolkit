@@ -1,0 +1,51 @@
+# Сгенерировано Ansible — не редактировать вручную
+{% set backends  = backend_hosts  | default('') | split(',') | map('trim') | select('match', '.+') | list %}
+{% set frontends = frontend_hosts | default('') | split(',') | map('trim') | select('match', '.+') | list %}
+{% set haproxies = haproxy_hosts  | default('') | split(',') | map('trim') | select('match', '.+') | list %}
+{% set storages  = [storage_host    | default('') | trim] | select('match', '.+') | list %}
+{% set monitrs   = [monitoring_host | default('') | trim] | select('match', '.+') | list %}
+
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+
+scrape_configs:
+{% if backends | length > 0 %}
+  - job_name: 'ivamail-backends'
+    static_configs:
+      - targets: [{% for h in backends %}'{{ h }}:{{ node_exporter_port }}'{% if not loop.last %}, {% endif %}{% endfor %}]
+        labels:
+          role: backend
+{% endif %}
+
+{% if frontends | length > 0 %}
+  - job_name: 'ivamail-frontends'
+    static_configs:
+      - targets: [{% for h in frontends %}'{{ h }}:{{ node_exporter_port }}'{% if not loop.last %}, {% endif %}{% endfor %}]
+        labels:
+          role: frontend
+{% endif %}
+
+{% if haproxies | length > 0 %}
+  - job_name: 'haproxy'
+    static_configs:
+      - targets: [{% for h in haproxies %}'{{ h }}:{{ node_exporter_port }}'{% if not loop.last %}, {% endif %}{% endfor %}]
+        labels:
+          role: haproxy
+{% endif %}
+
+{% if storages | length > 0 %}
+  - job_name: 'storage'
+    static_configs:
+      - targets: [{% for h in storages %}'{{ h }}:{{ node_exporter_port }}'{% if not loop.last %}, {% endif %}{% endfor %}]
+        labels:
+          role: storage
+{% endif %}
+
+{% if monitrs | length > 0 %}
+  - job_name: 'monitoring'
+    static_configs:
+      - targets: [{% for h in monitrs %}'{{ h }}:{{ node_exporter_port }}'{% if not loop.last %}, {% endif %}{% endfor %}]
+        labels:
+          role: monitoring
+{% endif %}

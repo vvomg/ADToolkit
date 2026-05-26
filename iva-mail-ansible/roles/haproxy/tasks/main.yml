@@ -1,0 +1,55 @@
+---
+# tasks/main.yml — haproxy role
+
+# -----------------------------------------------------------------------------
+# 1. Установка пакета HAProxy
+# -----------------------------------------------------------------------------
+- name: Установить пакет haproxy
+  ansible.builtin.apt:
+    name: haproxy
+    state: present
+    update_cache: yes
+  tags:
+    - haproxy
+    - install
+
+# -----------------------------------------------------------------------------
+# 2. Генерация haproxy.cfg из Jinja2-шаблона с проверкой синтаксиса
+# -----------------------------------------------------------------------------
+- name: Сгенерировать /etc/haproxy/haproxy.cfg из шаблона
+  ansible.builtin.template:
+    src:      haproxy.cfg.j2
+    dest:     /etc/haproxy/haproxy.cfg
+    owner:    root
+    group:    root
+    mode:     "0644"
+    validate: "/usr/sbin/haproxy -c -f %s"
+  notify: restart haproxy
+  tags:
+    - haproxy
+    - configure
+
+# -----------------------------------------------------------------------------
+# 3. Включение и запуск сервиса haproxy
+# -----------------------------------------------------------------------------
+- name: Включить и запустить haproxy.service
+  ansible.builtin.service:
+    name:    haproxy
+    enabled: yes
+    state:   started
+  tags:
+    - haproxy
+    - start
+
+# -----------------------------------------------------------------------------
+# 4. Локальная проверка: ждать, пока HAProxy начнёт слушать порт 80
+# -----------------------------------------------------------------------------
+- name: Ждать готовности HAProxy на порту {{ haproxy_http_port }} (локально)
+  ansible.builtin.wait_for:
+    host:    127.0.0.1
+    port:    "{{ haproxy_http_port }}"
+    timeout: 30
+    state:   started
+  tags:
+    - haproxy
+    - healthcheck

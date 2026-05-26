@@ -3,25 +3,25 @@
 # 01-postgres-nfs.yml — Развёртывание PostgreSQL и NFS
 # =============================================================================
 # Порядок плеев:
-#   Play 1 (localhost)  — строит динамический инвентарий из Survey AWX
+#   Play 1 (localhost)  — строит динамический инвентарий из extra_vars
 #   Play 2 (storage)    — PostgreSQL + NFS сервер на узле хранилища
 #   Play 3 (backends)   — монтирование NFS на каждом бэкенде (serial: 1)
 #
-# Секреты PostgreSQL инжектируются AWX Credential как env-переменные:
+# Секреты PostgreSQL инжектируются переменная окружения как env-переменные:
 #   PG_ADMIN_USER, PG_ADMIN_PASSWORD
 #   IVAMAIL_CMD_USER, IVAMAIL_CMD_PASSWORD
 #
-# Запуск вне AWX:
+# Запуск напрямую:
 #   ansible-playbook playbooks/01-postgres-nfs.yml \
 #     -e @tests/survey_vars.yml \
 #     -e PG_ADMIN_USER=admin -e PG_ADMIN_PASSWORD=changeme
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# PLAY 1: Динамический инвентарь из Survey AWX
+# PLAY 1: Динамический инвентарь из extra_vars
 # (дублируется из 00-bootstrap.yml — каждый плейбук самодостаточен)
 # -----------------------------------------------------------------------------
-- name: Построить динамический инвентарь из Survey AWX
+- name: Построить динамический инвентарь из extra_vars
   hosts: localhost
   gather_facts: no
   tasks:

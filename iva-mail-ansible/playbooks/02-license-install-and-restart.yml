@@ -4,18 +4,18 @@
 #                                       (Итерация 3)
 # =============================================================================
 # Порядок плеев:
-#   Play 1 (localhost)  — строит динамический инвентарий из Survey AWX
+#   Play 1 (localhost)  — строит динамический инвентарий из extra_vars
 #   Play 2 (backends)   — run_once на be1 — LicenseInstall через CMD
-#                         (license_file_path из Survey)
+#                         (license_file_path из extra_vars)
 #   Play 3 (backends)   — serial: 1 — последовательный перезапуск be1 → be2 → ...
 #                         с ожиданием CMD-порта и ping-проверкой после каждого узла
 #                         Остальные узлы подтягивают лицензию автоматически
 #                         при подключении к кластеру
 #   Play 4 (backends)   — финальная проверка статуса сервисов на всех узлах
 #
-# AWX Credentials: IVA Mail SSH Key + IVA Mail CMD
-# Survey: license_file_path — путь к файлу лицензии (.txt) на контроллере AWX
-# Запуск вне AWX:
+# Переменные окружения: IVAMAIL_CMD_USER, IVAMAIL_CMD_PASSWORD
+# Survey: license_file_path — путь к файлу лицензии (.txt) на Ansible-контроллере
+# Запуск напрямую:
 #   ansible-playbook playbooks/02-license-install-and-restart.yml \
 #     -e @tests/survey_vars.yml \
 #     -e license_file_path=/opt/ivamail/license.txt \
@@ -23,10 +23,10 @@
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# PLAY 1: Динамический инвентарий из Survey AWX
+# PLAY 1: Динамический инвентарий из extra_vars
 # (дублируется из предыдущих плейбуков — каждый плейбук самодостаточен)
 # -----------------------------------------------------------------------------
-- name: Построить динамический инвентарий из Survey AWX
+- name: Построить динамический инвентарий из extra_vars
   hosts: localhost
   gather_facts: no
   tasks:
@@ -193,9 +193,9 @@
         - healthcheck
 
     - name: Проверить доступность CMD (ping) на {{ inventory_hostname }}
-      # cmd_client.py запускается на контроллере AWX (delegate_to: localhost).
+      # cmd_client.py запускается на Ansible-контроллере (delegate_to: localhost).
       # --action ping проверяет готовность CMD-протокола после перезапуска.
-      # Учётные данные CMD инжектируются через AWX Credential "IVA Mail CMD".
+      # Учётные данные CMD инжектируются через переменных окружения IVAMAIL_CMD_*.
       ansible.builtin.script:
         cmd: >-
           scripts/cmd_client.py

@@ -1,0 +1,32 @@
+---
+# tasks/strategy_url.yml — ivamail_common role
+# Стратегия "url": скачиваем пакет IVA Mail непосредственно на целевой узел.
+
+# Создаём временный каталог для пакета
+- name: Создать временный каталог для пакета IVA Mail
+  ansible.builtin.file:
+    path: "{{ ivamail_pkg_tmp_dir }}"
+    state: directory
+    mode: '0700'
+  tags:
+    - ivamail_common
+    - install
+
+- name: Скачать пакет IVA Mail по URL на целевой узел
+  ansible.builtin.get_url:
+    url: "{{ package_url }}"
+    dest: "{{ ivamail_pkg_tmp_dir }}/{{ package_url | basename }}"
+    mode: '0600'
+    timeout: 300
+  register: downloaded_package
+  tags:
+    - ivamail_common
+    - install
+
+- name: Установить пакет (стратегия url)
+  ansible.builtin.include_tasks: do_install.yml
+  vars:
+    ivamail_pkg_path: "{{ downloaded_package.dest }}"
+  tags:
+    - ivamail_common
+    - install

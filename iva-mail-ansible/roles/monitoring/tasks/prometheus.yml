@@ -1,0 +1,43 @@
+---
+# tasks/prometheus.yml — установка и настройка Prometheus
+
+- name: Установить пакет Prometheus из системного репозитория
+  ansible.builtin.apt:
+    name: prometheus
+    state: present
+    update_cache: yes
+  tags:
+    - monitoring
+    - prometheus
+
+- name: Развернуть конфигурацию Prometheus из шаблона
+  ansible.builtin.template:
+    src: prometheus.yml.j2
+    dest: /etc/prometheus/prometheus.yml
+    owner: prometheus
+    group: prometheus
+    mode: "0644"
+    validate: '/usr/bin/promtool check config %s'
+  notify: restart prometheus
+  tags:
+    - monitoring
+    - prometheus
+
+- name: Включить и запустить сервис Prometheus
+  ansible.builtin.service:
+    name: "{{ prometheus_service }}"
+    enabled: yes
+    state: started
+  tags:
+    - monitoring
+    - prometheus
+
+- name: Дождаться запуска Prometheus на порту {{ prometheus_port }}
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ prometheus_port }}"
+    timeout: 30
+  tags:
+    - monitoring
+    - prometheus
+    - healthcheck

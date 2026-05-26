@@ -1,0 +1,23 @@
+---
+# meta/main.yml — ivamail_common role
+
+galaxy_info:
+  role_name: ivamail_common
+  author: iva-mail-deploy
+  description: >
+    Install IVA Mail deb/rpm package on any node using one of four
+    configurable delivery strategies (url, controller, server_same,
+    server_per_node). Enables the systemd service for autostart.
+  license: MIT
+  min_ansible_version: "2.12"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+
+dependencies: []

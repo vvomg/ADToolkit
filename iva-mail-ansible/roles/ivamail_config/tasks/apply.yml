@@ -1,0 +1,70 @@
+---
+# tasks/apply.yml — применить конфигурацию IVA Mail из JSON-файлов через CMD
+#
+# Читает JSON-файлы из ivamail_config_input_dir (на Ansible-контроллере)
+# и применяет через ModuleUpdateConfig / DOMAINUPDATECONFIG.
+#
+# Переменные:
+#   ivamail_config_input_dir  — каталог с JSON-файлами конфигурации
+#
+# Запускается через delegate_to: localhost (все CMD-операции на Ansible-контроллере).
+# Целевой хост в плейбуке: конкретный бэкенд(ы).
+
+- name: Проверить что каталог с JSON-конфигурацией задан
+  ansible.builtin.assert:
+    that:
+      - ivamail_config_input_dir is defined
+      - ivamail_config_input_dir | length > 0
+    fail_msg: "Переменная ivamail_config_input_dir не задана (путь к каталогу с JSON-файлами)"
+  delegate_to: localhost
+  tags:
+    - ivamail_config
+    - config_apply
+
+- name: Проверить что каталог с JSON-конфигурацией существует на Ansible-контроллере
+  ansible.builtin.stat:
+    path: "{{ ivamail_config_input_dir }}"
+  register: _config_input_stat
+  delegate_to: localhost
+  tags:
+    - ivamail_config
+    - config_apply
+
+- name: Убедиться что каталог конфигурации существует
+  ansible.builtin.assert:
+    that:
+      - _config_input_stat.stat.exists
+      - _config_input_stat.stat.isdir
+    fail_msg: "Каталог конфигурации не найден: {{ ivamail_config_input_dir }}"
+  delegate_to: localhost
+  tags:
+    - ivamail_config
+    - config_apply
+
+# no_log: true — environment содержит учётные данные CMD
+- name: "Применить конфигурацию IVA Mail через CMD ({{ inventory_hostname }})"
+  ansible.builtin.script:
+    cmd: >-
+      scripts/cmd_client.py
+      --host {{ inventory_hostname }}
+      --port {{ cmd_port | default(106) }}
+      --action config-restore
+      --input-dir {{ ivamail_config_input_dir }}
+      --timeout {{ ivamail_config_cmd_timeout }}
+  environment:
+    IVAMAIL_CMD_USER: "{{ lookup('env', 'IVAMAIL_CMD_USER') }}"
+    IVAMAIL_CMD_PASSWORD: "{{ lookup('env', 'IVAMAIL_CMD_PASSWORD') }}"
+  delegate_to: localhost
+  changed_when: true
+  no_log: true
+  register: _config_apply_result
+  tags:
+    - ivamail_config
+    - config_apply
+
+- name: Показать сводку применения конфигурации
+  ansible.builtin.debug:
+    msg: "Конфигурация применена на {{ inventory_hostname }}: {{ _config_apply_result.stdout_lines | default([]) | last | default('OK') }}"
+  tags:
+    - ivamail_config
+    - config_apply

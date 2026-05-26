@@ -1,0 +1,13 @@
+---
+# defaults/main.yml — nfs_server role
+
+# Каталог, экспортируемый по NFS для бэкендов IVA Mail
+nfs_export_dir: "/srv/nfs/nfsshared"
+
+# Опции экспорта NFS
+# no_root_squash — необходим для корректной работы IVA Mail с общим хранилищем
+nfs_export_options: "rw,sync,no_subtree_check,no_root_squash"
+
+# Список хостов-бэкендов, которым разрешён доступ к NFS
+# Передаётся из плейбука. Формат: [{ip: "10.3.6.126"}, {ip: "10.3.6.127"}]
+nfs_backends: []

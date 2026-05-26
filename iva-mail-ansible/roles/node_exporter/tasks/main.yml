@@ -1,0 +1,42 @@
+---
+# tasks/main.yml — node_exporter role
+
+- name: Установить prometheus-node-exporter
+  ansible.builtin.apt:
+    name: prometheus-node-exporter
+    state: present
+    update_cache: yes
+  tags:
+    - node_exporter
+    - install
+
+# На Debian/Ubuntu аргументы ExecStart читаются из /etc/default/prometheus-node-exporter
+- name: Настроить адрес прослушивания node_exporter
+  ansible.builtin.lineinfile:
+    path: /etc/default/prometheus-node-exporter
+    regexp: '^ARGS='
+    line: 'ARGS="--web.listen-address={{ node_exporter_listen_address }}"'
+    create: yes
+  notify: restart node_exporter
+  tags:
+    - node_exporter
+    - configure
+
+- name: Включить и запустить node_exporter
+  ansible.builtin.service:
+    name: "{{ node_exporter_service }}"
+    enabled: yes
+    state: started
+  tags:
+    - node_exporter
+    - start
+
+- name: "Проверить доступность node_exporter (порт {{ node_exporter_port }})"
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ node_exporter_port }}"
+    timeout: 30
+    state: started
+  tags:
+    - node_exporter
+    - healthcheck

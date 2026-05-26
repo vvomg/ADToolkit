@@ -1,0 +1,22 @@
+---
+# meta/main.yml — nfs_server role
+
+galaxy_info:
+  role_name: nfs_server
+  author: iva-mail-deploy
+  description: >
+    Install NFS server on the IVA Mail storage host and export
+    /srv/nfs/nfsshared to backend hosts. NFSv3 is required by IVA Mail.
+  license: MIT
+  min_ansible_version: "2.12"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+
+dependencies: []

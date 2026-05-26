@@ -1,0 +1,131 @@
+---
+# tasks/rollback.yml — откат конфигурации IVA Mail к снимку git-репозитория
+#
+# Порядок действий:
+#   1. git checkout <tag> -- cmd-configs/ на мониторинг-хосте
+#   2. rsync с мониторинг-хоста на Ansible-контроллер (pull)
+#   3. Для каждого бэкенда: cmd_client.py config-restore из tmp-каталога
+#   4. Опциональный перезапуск ivamail.service на бэкендах
+#
+# Требуемые переменные:
+#   ivamail_config_rollback_tag — git-тег для отката (например "config-2024-01-15")
+#
+# Запускается в двух плеях: мониторинг-хост (git) + бэкенды (CMD + restart).
+# ВАЖНО: этот файл запускается на бэкенд-хостах; git-операции делегируются
+# на ivamail_config_git_host, CMD-операции — на localhost.
+
+- name: Проверить что git-тег для отката задан
+  ansible.builtin.assert:
+    that:
+      - ivamail_config_rollback_tag is defined
+      - ivamail_config_rollback_tag | length > 0
+    fail_msg: "Переменная ivamail_config_rollback_tag не задана (git-тег снимка для отката)"
+  run_once: true
+  delegate_to: localhost
+  tags:
+    - ivamail_config
+    - config_rollback
+
+# Шаг 1: git checkout тега на мониторинг-хосте (run_once — тег общий для всех)
+- name: "Откатить cmd-configs в git-репозитории к тегу {{ ivamail_config_rollback_tag }}"
+  ansible.builtin.command:
+    cmd: >-
+      git -C {{ ivamail_config_dump_dir | dirname }}
+      checkout {{ ivamail_config_rollback_tag }} -- cmd-configs/
+  run_once: true
+  delegate_to: "{{ ivamail_config_git_host }}"
+  changed_when: true
+  tags:
+    - ivamail_config
+    - config_rollback
+
+# Шаг 2: создать tmp-каталог на Ansible-контроллере для файлов отката
+- name: Создать временный каталог для файлов отката на Ansible-контроллере
+  ansible.builtin.file:
+    path: "{{ ivamail_config_restore_tmp_dir }}"
+    state: directory
+    mode: "0700"
+  run_once: true
+  delegate_to: localhost
+  tags:
+    - ivamail_config
+    - config_rollback
+
+# Шаг 3: rsync с мониторинг-хоста на Ansible-контроллер
+# Запускается на localhost; rsync тянет данные с monitoring_host через SSH
+- name: "Синхронизировать снимок конфига {{ ivamail_config_rollback_tag }} с monitoring на Ansible"
+  ansible.builtin.command:
+    cmd: >-
+      rsync -av --delete
+      root@{{ ivamail_config_git_host }}:{{ ivamail_config_dump_dir }}/
+      {{ ivamail_config_restore_tmp_dir }}/
+  run_once: true
+  delegate_to: localhost
+  changed_when: true
+  tags:
+    - ivamail_config
+    - config_rollback
+
+# Шаг 4: применить конфигурацию для каждого бэкенда
+# no_log: true — environment содержит учётные данные CMD
+- name: "Восстановить конфигурацию IVA Mail через CMD ({{ inventory_hostname }})"
+  ansible.builtin.script:
+    cmd: >-
+      scripts/cmd_client.py
+      --host {{ inventory_hostname }}
+      --port {{ cmd_port | default(106) }}
+      --action config-restore
+      --input-dir {{ ivamail_config_restore_tmp_dir }}/{{ inventory_hostname }}
+      --timeout {{ ivamail_config_cmd_timeout }}
+  environment:
+    IVAMAIL_CMD_USER: "{{ lookup('env', 'IVAMAIL_CMD_USER') }}"
+    IVAMAIL_CMD_PASSWORD: "{{ lookup('env', 'IVAMAIL_CMD_PASSWORD') }}"
+  delegate_to: localhost
+  changed_when: true
+  no_log: true
+  register: _config_restore_result
+  tags:
+    - ivamail_config
+    - config_rollback
+
+- name: Показать сводку восстановления конфигурации
+  ansible.builtin.debug:
+    msg: >-
+      Конфигурация восстановлена на {{ inventory_hostname }}
+      из тега {{ ivamail_config_rollback_tag }}:
+      {{ _config_restore_result.stdout_lines | default([]) | last | default('OK') }}
+  tags:
+    - ivamail_config
+    - config_rollback
+
+# Шаг 5: перезапустить IVA Mail (если включено)
+- name: "Перезапустить ivamail.service на {{ inventory_hostname }} после восстановления конфига"
+  ansible.builtin.service:
+    name: "{{ ivamail_service_name | default('ivamail') }}"
+    state: restarted
+  when: ivamail_config_restart_after_restore | default(true) | bool
+  tags:
+    - ivamail_config
+    - config_rollback
+
+# Шаг 6: убедиться что сервис снова работает
+- name: Дождаться запуска CMD-порта после перезапуска
+  ansible.builtin.wait_for:
+    host: "{{ inventory_hostname }}"
+    port: "{{ cmd_port | default(106) }}"
+    timeout: "{{ cmd_port_wait_timeout | default(60) }}"
+  when: ivamail_config_restart_after_restore | default(true) | bool
+  tags:
+    - ivamail_config
+    - config_rollback
+
+# Шаг 7: очистить временный каталог с Ansible-контроллера
+- name: Удалить временный каталог отката с Ansible-контроллера
+  ansible.builtin.file:
+    path: "{{ ivamail_config_restore_tmp_dir }}"
+    state: absent
+  run_once: true
+  delegate_to: localhost
+  tags:
+    - ivamail_config
+    - config_rollback

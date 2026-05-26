@@ -1,0 +1,37 @@
+---
+# defaults/main.yml — monitoring role
+
+# Prometheus
+prometheus_port: 9090
+prometheus_service: prometheus
+prometheus_config_dir: /etc/prometheus
+node_exporter_port: 9100
+
+# Grafana
+grafana_port: 3000
+grafana_service: grafana-server
+grafana_admin_user: admin
+# Пароль инжектируется переменная окружения или env-переменной
+grafana_admin_password: "{{ lookup('env', 'GRAFANA_ADMIN_PASSWORD') | default('ChangeMe123!', true) }}"
+
+# Graylog
+graylog_port: 9000
+graylog_syslog_port: 5141
+graylog_service: graylog-server
+# root_password: пароль для входа в веб-интерфейс Graylog
+graylog_root_password: "{{ lookup('env', 'GRAYLOG_ROOT_PASSWORD') | default('admin', true) }}"
+# password_secret: случайная строка >= 64 символов для шифрования сессий.
+# Если не задан через переменная окружения, генерируется через openssl rand в tasks/graylog.yml.
+# НИКОГДА не оставлять пустым — Graylog не запустится без password_secret.
+graylog_password_secret: "{{ lookup('env', 'GRAYLOG_PASSWORD_SECRET') | default('', true) }}"
+
+# Пароль для установки OpenSearch (используется только при apt install,
+# security plugin отключён — runtime-аутентификация не применяется).
+opensearch_initial_admin_password: "{{ lookup('env', 'OPENSEARCH_INITIAL_ADMIN_PASSWORD') | default('ChangeMe_1234!', true) }}"
+
+# Список хостов кластера (CSV, из extra_vars) — для prometheus.yml scrape targets
+backend_hosts: ""
+frontend_hosts: ""
+haproxy_hosts: ""
+storage_host: ""
+monitoring_host: ""

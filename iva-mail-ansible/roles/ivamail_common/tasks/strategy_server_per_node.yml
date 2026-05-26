@@ -1,0 +1,57 @@
+---
+# tasks/strategy_server_per_node.yml — ivamail_common role
+# Стратегия "server_per_node": у каждого узла свой путь к пакету.
+# package_per_node_paths — YAML-строка из extra_vars (textarea):
+#   "10.3.6.126: /mnt/packages/ivamail-1.2.3.deb\n10.3.6.127: /mnt/packages/ivamail-1.2.3.deb"
+
+- name: Разобрать YAML-список путей для каждого узла
+  ansible.builtin.set_fact:
+    _per_node_paths_dict: "{{ package_per_node_paths | from_yaml }}"
+  tags:
+    - ivamail_common
+    - install
+
+- name: Получить путь к пакету для текущего узла
+  ansible.builtin.set_fact:
+    _my_pkg_path: "{{ _per_node_paths_dict[inventory_hostname] | default('') }}"
+  tags:
+    - ivamail_common
+    - install
+
+- name: Убедиться что путь для текущей ноды задан в package_per_node_paths
+  ansible.builtin.assert:
+    that: _my_pkg_path | length > 0
+    fail_msg: >
+      Путь к пакету не задан для {{ inventory_hostname }} в package_per_node_paths.
+      Добавьте строку: {{ inventory_hostname }}: /path/to/ivamail.deb
+  tags:
+    - ivamail_common
+    - install
+
+- name: Проверить наличие файла пакета на текущем узле
+  ansible.builtin.stat:
+    path: "{{ _my_pkg_path }}"
+  register: per_node_pkg_stat
+  tags:
+    - ivamail_common
+    - install
+
+- name: Убедиться что файл пакета существует на {{ inventory_hostname }}
+  ansible.builtin.assert:
+    that:
+      - per_node_pkg_stat.stat.exists
+      - per_node_pkg_stat.stat.isreg
+    fail_msg: >
+      Пакет не найден на {{ inventory_hostname }}: {{ _my_pkg_path }}.
+      Убедитесь что файл доступен на этом узле.
+  tags:
+    - ivamail_common
+    - install
+
+- name: Установить пакет (стратегия server_per_node)
+  ansible.builtin.include_tasks: do_install.yml
+  vars:
+    ivamail_pkg_path: "{{ _my_pkg_path }}"
+  tags:
+    - ivamail_common
+    - install

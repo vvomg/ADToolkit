@@ -1,0 +1,237 @@
+---
+# tasks/graylog.yml — установка MongoDB 6, OpenSearch 2 и Graylog 5
+# Порядок: MongoDB → OpenSearch → Graylog (каждый следующий зависит от предыдущего)
+
+# ── MongoDB 6.x ────────────────────────────────────────────────────────────────
+
+- name: Установить зависимости для работы с GPG-ключами (gnupg, curl)
+  ansible.builtin.apt:
+    name:
+      - gnupg
+      - curl
+    state: present
+  tags:
+    - monitoring
+    - graylog
+
+- name: Создать каталог для ключей APT
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+  tags:
+    - monitoring
+    - graylog
+
+- name: Скачать GPG-ключ репозитория MongoDB 6.0
+  ansible.builtin.get_url:
+    url: https://www.mongodb.org/static/pgp/server-6.0.asc
+    dest: /etc/apt/keyrings/mongodb.asc
+    mode: "0644"
+  tags:
+    - monitoring
+    - graylog
+
+- name: Добавить репозиторий MongoDB 6.0 (Ubuntu Focal)
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/mongodb.asc arch=amd64] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/6.0 multiverse"
+    state: present
+    update_cache: yes
+  tags:
+    - monitoring
+    - graylog
+
+- name: Установить пакет mongodb-org
+  ansible.builtin.apt:
+    name: mongodb-org
+    state: present
+  tags:
+    - monitoring
+    - graylog
+
+- name: Включить и запустить сервис MongoDB
+  ansible.builtin.service:
+    name: mongod
+    enabled: yes
+    state: started
+  tags:
+    - monitoring
+    - graylog
+
+- name: Дождаться запуска MongoDB на порту 27017
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: 27017
+    timeout: 60
+  tags:
+    - monitoring
+    - graylog
+
+# ── OpenSearch 2.x ─────────────────────────────────────────────────────────────
+
+- name: Скачать GPG-ключ репозитория OpenSearch
+  ansible.builtin.get_url:
+    url: https://artifacts.opensearch.org/publickeys/opensearch.pgp
+    dest: /etc/apt/keyrings/opensearch.gpg
+    mode: "0644"
+  tags:
+    - monitoring
+    - graylog
+
+- name: Добавить репозиторий OpenSearch 2.x
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/opensearch.gpg arch=amd64] https://artifacts.opensearch.org/releases/bundle/opensearch/2.x/apt stable main"
+    state: present
+    update_cache: yes
+  tags:
+    - monitoring
+    - graylog
+
+- name: Установить пакет OpenSearch (env отключает интерактивный ввод пароля при установке)
+  ansible.builtin.apt:
+    name: opensearch
+    state: present
+  environment:
+    # Пароль читается из переменная окружения или defaults/main.yml (не захардкожен в коде)
+    OPENSEARCH_INITIAL_ADMIN_PASSWORD: "{{ opensearch_initial_admin_password }}"
+  tags:
+    - monitoring
+    - graylog
+
+# Отключаем security plugin для упрощённой конфигурации single-node (Graylog не поддерживает
+# защищённый OpenSearch без дополнительной настройки сертификатов)
+- name: Отключить security plugin OpenSearch в opensearch.yml
+  ansible.builtin.lineinfile:
+    path: /etc/opensearch/opensearch.yml
+    regexp: '^plugins.security.disabled'
+    line: 'plugins.security.disabled: true'
+    create: yes
+  notify: restart opensearch
+  tags:
+    - monitoring
+    - graylog
+
+- name: Настроить OpenSearch как single-node кластер в opensearch.yml
+  ansible.builtin.lineinfile:
+    path: /etc/opensearch/opensearch.yml
+    regexp: '^discovery.type'
+    line: 'discovery.type: single-node'
+    create: yes
+  notify: restart opensearch
+  tags:
+    - monitoring
+    - graylog
+
+- name: Включить и запустить сервис OpenSearch
+  ansible.builtin.service:
+    name: opensearch
+    enabled: yes
+    state: started
+  tags:
+    - monitoring
+    - graylog
+
+- name: Дождаться запуска OpenSearch на порту 9200
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: 9200
+    timeout: 120
+  tags:
+    - monitoring
+    - graylog
+
+# ── Graylog 5.x ────────────────────────────────────────────────────────────────
+
+- name: Скачать deb-пакет репозитория Graylog 5.2
+  ansible.builtin.get_url:
+    url: https://packages.graylog2.org/repo/packages/graylog-5.2-repository_latest.deb
+    dest: /tmp/graylog-repo.deb
+    mode: "0644"
+  tags:
+    - monitoring
+    - graylog
+
+- name: Установить пакет репозитория Graylog (регистрирует apt-источник)
+  ansible.builtin.apt:
+    deb: /tmp/graylog-repo.deb
+    state: present
+  tags:
+    - monitoring
+    - graylog
+
+- name: Обновить кэш apt после добавления репозитория Graylog
+  ansible.builtin.apt:
+    update_cache: yes
+  tags:
+    - monitoring
+    - graylog
+
+- name: Установить пакет graylog-server
+  ansible.builtin.apt:
+    name: graylog-server
+    state: present
+  tags:
+    - monitoring
+    - graylog
+
+# Если GRAYLOG_PASSWORD_SECRET не задан через переменная окружения — генерируем
+# случайную строку 96 символов. openssl rand -hex 48 даёт 96 hex-символов (>= 64).
+# no_log: true — результат содержит секретные данные.
+- name: Сгенерировать password_secret если не задан через переменная окружения
+  ansible.builtin.command: openssl rand -hex 48
+  register: _graylog_generated_secret
+  when: graylog_password_secret | length == 0
+  changed_when: false
+  no_log: true
+  tags:
+    - monitoring
+    - graylog
+
+- name: Установить graylog_password_secret (из Credential или сгенерированный)
+  ansible.builtin.set_fact:
+    graylog_password_secret: "{{ _graylog_generated_secret.stdout }}"
+  when: graylog_password_secret | length == 0
+  no_log: true
+  tags:
+    - monitoring
+    - graylog
+
+- name: Вычислить SHA-256 хэш пароля root для Graylog
+  ansible.builtin.set_fact:
+    graylog_root_password_sha2: "{{ graylog_root_password | hash('sha256') }}"
+  no_log: true
+  tags:
+    - monitoring
+    - graylog
+
+- name: Сгенерировать server.conf Graylog из шаблона
+  ansible.builtin.template:
+    src: graylog.conf.j2
+    dest: /etc/graylog/server/server.conf
+    owner: graylog
+    group: graylog
+    mode: "0640"
+  no_log: true
+  notify: restart graylog
+  tags:
+    - monitoring
+    - graylog
+
+- name: Включить и запустить сервис Graylog
+  ansible.builtin.service:
+    name: "{{ graylog_service }}"
+    enabled: yes
+    state: started
+  tags:
+    - monitoring
+    - graylog
+
+- name: Дождаться запуска веб-интерфейса Graylog на порту {{ graylog_port }}
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ graylog_port }}"
+    timeout: 120
+  tags:
+    - monitoring
+    - graylog
+    - healthcheck

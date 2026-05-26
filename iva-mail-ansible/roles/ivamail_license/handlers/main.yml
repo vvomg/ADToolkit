@@ -1,0 +1,10 @@
+---
+# handlers/main.yml
+# Обработчики событий роли ivamail_license.
+# Перезапуск сервиса используется при необходимости применить новую лицензию
+# на узлах, где это требуется по логике плейбука.
+
+- name: restart ivamail
+  ansible.builtin.service:
+    name: "{{ ivamail_service_name }}"
+    state: restarted
