@@ -534,7 +534,7 @@ async def ansible_dump_stream(req: AnsibleRunRequest) -> StreamingResponse:
     async def _gen():
         gen = ar.stream_playbook(
             ar.PLAYBOOKS["config_dump"],
-            extra_vars={**(req.extra_vars or {}), **({"target_hosts": ",".join(req.hosts)} if req.hosts else {})},
+            extra_vars={**(req.extra_vars or {}), **({"backend_hosts": ",".join(req.hosts)} if req.hosts else {})},
         )
         async for line in gen:
             yield f"data: {line}\n\n"
@@ -549,7 +549,7 @@ async def ansible_apply_stream(req: AnsibleRunRequest) -> StreamingResponse:
     async def _gen():
         gen = ar.stream_playbook(
             ar.PLAYBOOKS["config_apply"],
-            extra_vars={**(req.extra_vars or {}), **({"target_hosts": ",".join(req.hosts)} if req.hosts else {})},
+            extra_vars={**(req.extra_vars or {}), **({"backend_hosts": ",".join(req.hosts)} if req.hosts else {})},
         )
         async for line in gen:
             yield f"data: {line}\n\n"
@@ -628,7 +628,7 @@ async def ansible_dump_stream_v2(body: DumpStreamRequest) -> StreamingResponse:
     Расширенная версия существующего /ansible/dump/stream.
     """
     extra_vars: dict[str, Any] = {
-        "target_hosts": ",".join(body.hosts),
+        "backend_hosts": ",".join(body.hosts),
         "include_objects": body.include_objects,
     }
     if body.config_tag_name:
@@ -684,7 +684,7 @@ async def ansible_apply_stream_v2(
         yield f"data: [GEN] Playbook generated: {playbook_path}\n\n"
         gen = ar.stream_playbook(
             playbook_path,
-            extra_vars={"target_hosts": ",".join(body.hosts)},
+            extra_vars={"backend_hosts": ",".join(body.hosts)},
         )
         async for line in gen:
             yield f"data: {line}\n\n"
@@ -761,7 +761,7 @@ async def ansible_rollback_stream(body: RollbackStreamRequest) -> StreamingRespo
 
         gen = ar.stream_playbook(
             playbook_path,
-            extra_vars={"target_hosts": ",".join(body.hosts)},
+            extra_vars={"backend_hosts": ",".join(body.hosts)},
         )
         async for line in gen:
             yield f"data: {line}\n\n"

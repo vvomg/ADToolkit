@@ -186,7 +186,7 @@ async def run_config_dump(
     """Run the config dump playbook (read from nodes → save to config-store/)."""
     ev = extra_vars or {}
     if hosts:
-        ev["target_hosts"] = ",".join(hosts)
+        ev["backend_hosts"] = ",".join(hosts)
     return await run_playbook(PLAYBOOKS["config_dump"], extra_vars=ev)
 
 
@@ -197,7 +197,7 @@ async def run_config_apply(
     """Run the config apply playbook (config-store/ → push to nodes via Ansible)."""
     ev = extra_vars or {}
     if hosts:
-        ev["target_hosts"] = ",".join(hosts)
+        ev["backend_hosts"] = ",".join(hosts)
     return await run_playbook(PLAYBOOKS["config_apply"], extra_vars=ev)
 
 
@@ -207,7 +207,7 @@ async def stream_config_dump(
 ) -> AsyncGenerator[str, None]:
     ev = extra_vars or {}
     if hosts:
-        ev["target_hosts"] = ",".join(hosts)
+        ev["backend_hosts"] = ",".join(hosts)
     return stream_playbook(PLAYBOOKS["config_dump"], extra_vars=ev)
 
 
@@ -217,5 +217,5 @@ async def stream_config_apply(
 ) -> AsyncGenerator[str, None]:
     ev = extra_vars or {}
     if hosts:
-        ev["target_hosts"] = ",".join(hosts)
+        ev["backend_hosts"] = ",".join(hosts)
     return stream_playbook(PLAYBOOKS["config_apply"], extra_vars=ev)
