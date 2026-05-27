@@ -1,14 +1,27 @@
 import { useState, useEffect } from "react";
-import { X, Wifi, Shield, Database, BarChart2, Loader2 } from "lucide-react";
+import { X, Wifi, Shield, Database, BarChart2, BarChart, Activity, HardDrive, Scale, Loader2 } from "lucide-react";
 
 // ── Types (shared with Dashboard) ─────────────────────────────────
+
+export type NodeType =
+  | "ivamail_backend"
+  | "ivamail_frontend"
+  | "haproxy"
+  | "load_balancer"
+  | "nfs"
+  | "nfs_backup"
+  | "monitoring"
+  | "monitoring_prometheus"
+  | "monitoring_grafana"
+  | "monitoring_graylog";
 
 export interface MonitorNodePublic {
   id: number;
   ip: string;
   hostname: string | null;
   display_name: string | null;
-  node_type: "ivamail_backend" | "ivamail_frontend" | "nfs" | "haproxy" | "monitoring";
+  node_type: NodeType;
+  cluster_id: number | null;
   ssh_user: string;
   ssh_auth_mode: "password" | "key";
   ssh_key_path: string | null;
@@ -28,24 +41,51 @@ export interface AddNodeModalProps {
   onClose: () => void;
   onSaved: (node: MonitorNodePublic) => void;
   editNode?: MonitorNodePublic | null;
-  defaultNodeType?: MonitorNodePublic["node_type"];
+  defaultNodeType?: NodeType;
+  defaultClusterId?: number | null;
 }
 
 // ── Constants ──────────────────────────────────────────────────────
 
-const NODE_TYPE_OPTIONS: {
-  value: MonitorNodePublic["node_type"];
+type NodeTypeGroup = {
   label: string;
-  icon: React.ReactNode;
-}[] = [
-  { value: "ivamail_backend",  label: "IVA Backend",  icon: <Wifi size={13} /> },
-  { value: "ivamail_frontend", label: "IVA Frontend", icon: <Wifi size={13} /> },
-  { value: "haproxy",          label: "HAProxy",       icon: <Shield size={13} /> },
-  { value: "nfs",              label: "NFS/БД",        icon: <Database size={13} /> },
-  { value: "monitoring",       label: "Мониторинг",    icon: <BarChart2 size={13} /> },
+  options: { value: NodeType; label: string; icon: React.ReactNode }[];
+};
+
+const NODE_TYPE_GROUPS: NodeTypeGroup[] = [
+  {
+    label: "IVA Mail",
+    options: [
+      { value: "ivamail_backend",  label: "Backend",  icon: <Wifi size={13} /> },
+      { value: "ivamail_frontend", label: "Frontend", icon: <Wifi size={13} /> },
+    ],
+  },
+  {
+    label: "Балансировщики",
+    options: [
+      { value: "haproxy",       label: "HAProxy",        icon: <Shield size={13} /> },
+      { value: "load_balancer", label: "Load Balancer",  icon: <Scale size={13} /> },
+    ],
+  },
+  {
+    label: "Хранилище",
+    options: [
+      { value: "nfs",        label: "NFS Primary", icon: <Database size={13} /> },
+      { value: "nfs_backup", label: "NFS Резерв",  icon: <HardDrive size={13} /> },
+    ],
+  },
+  {
+    label: "Мониторинг",
+    options: [
+      { value: "monitoring",             label: "All-in-one",  icon: <BarChart2 size={13} /> },
+      { value: "monitoring_prometheus",  label: "Prometheus",  icon: <Activity size={13} /> },
+      { value: "monitoring_grafana",     label: "Grafana",     icon: <BarChart size={13} /> },
+      { value: "monitoring_graylog",     label: "Graylog",     icon: <BarChart2 size={13} /> },
+    ],
+  },
 ];
 
-const isIvaMail = (t: MonitorNodePublic["node_type"]) =>
+const isIvaMail = (t: NodeType) =>
   t === "ivamail_backend" || t === "ivamail_frontend";
 
 // ── Probe result type ──────────────────────────────────────────────
@@ -66,11 +106,12 @@ export function AddNodeModal({
   onSaved,
   editNode = null,
   defaultNodeType = "ivamail_backend",
+  defaultClusterId = null,
 }: AddNodeModalProps) {
   const isEdit = editNode !== null;
 
   // Form state
-  const [nodeType, setNodeType] = useState<MonitorNodePublic["node_type"]>(
+  const [nodeType, setNodeType] = useState<NodeType>(
     editNode?.node_type ?? defaultNodeType
   );
   const [ip, setIp] = useState(editNode?.ip ?? "");
@@ -158,6 +199,7 @@ export function AddNodeModal({
         node_type: nodeType,
         ip: ip.trim(),
         display_name: displayName.trim() || null,
+        cluster_id: isEdit ? (editNode!.cluster_id ?? null) : (defaultClusterId ?? null),
         ssh_user: sshUser,
         ssh_auth_mode: authMode,
         ssh_port: Number(sshPort),
@@ -228,27 +270,32 @@ export function AddNodeModal({
         {/* Scrollable body */}
         <div className="overflow-y-auto flex-1 px-5 py-4 space-y-5">
 
-          {/* Node type segmented control */}
-          <div className="space-y-1.5">
+          {/* Node type grouped selector */}
+          <div className="space-y-2">
             <label className="text-[11px] text-overlay0 uppercase tracking-wider font-medium">
               Тип ноды
             </label>
-            <div className="flex flex-wrap gap-1.5">
-              {NODE_TYPE_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => setNodeType(opt.value)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                    nodeType === opt.value
-                      ? "bg-blue/20 text-blue border border-blue/40"
-                      : "bg-surface1 text-subtext border border-transparent hover:border-surface1"
-                  }`}
-                >
-                  {opt.icon}
-                  {opt.label}
-                </button>
-              ))}
-            </div>
+            {NODE_TYPE_GROUPS.map((group) => (
+              <div key={group.label} className="space-y-1">
+                <p className="text-[9px] text-overlay0/60 uppercase tracking-wider">{group.label}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {group.options.map((opt) => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setNodeType(opt.value)}
+                      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                        nodeType === opt.value
+                          ? "bg-blue/20 text-blue border border-blue/40"
+                          : "bg-surface1 text-subtext border border-transparent hover:border-surface1"
+                      }`}
+                    >
+                      {opt.icon}
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
 
           {/* IP + display name */}

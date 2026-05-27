@@ -127,6 +127,24 @@ class LicenseRequest(Base):
         return f"<LicenseRequest id={self.id} server={self.server_ip} installed={self.installed}>"
 
 
+class MonitorCluster(Base):
+    """Кластер — логическая группа нод мониторинга."""
+    __tablename__ = "monitor_clusters"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    name        = Column(String(100), nullable=False)
+    color       = Column(String(20), default="blue")   # blue|green|yellow|red|mauve|peach|teal|sapphire|lavender
+    description = Column(Text, nullable=True)
+    sort_order  = Column(Integer, default=0)
+    created_at  = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at  = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    nodes = relationship("MonitorNode", back_populates="cluster")
+
+    def __repr__(self) -> str:
+        return f"<MonitorCluster id={self.id} name={self.name}>"
+
+
 class MonitorNode(Base):
     """Реестр нод для мониторинга на дашборде."""
     __tablename__ = "monitor_nodes"
@@ -135,7 +153,10 @@ class MonitorNode(Base):
     ip            = Column(String(45), nullable=False, unique=True)
     hostname      = Column(String(255), nullable=True)    # авто: "be-10-3-6-206"
     display_name  = Column(String(100), nullable=True)    # произвольное имя
-    node_type     = Column(String(30), nullable=False)    # "ivamail_backend"|"ivamail_frontend"|"nfs"|"haproxy"|"monitoring"
+    # node_type: ivamail_backend|ivamail_frontend|nfs|nfs_backup|haproxy|load_balancer
+    #            |monitoring|monitoring_prometheus|monitoring_grafana|monitoring_graylog
+    node_type     = Column(String(40), nullable=False)
+    cluster_id    = Column(Integer, ForeignKey("monitor_clusters.id", ondelete="SET NULL"), nullable=True)
     ssh_user      = Column(String(100), default="user")
     ssh_auth_mode = Column(String(10), default="password")   # "password"|"key"
     ssh_password  = Column(Text, nullable=True)
@@ -150,6 +171,8 @@ class MonitorNode(Base):
     cmd_cluster_status   = Column(String(50),  nullable=True)    # из SystemInfo["Cluster Status"]
     created_at    = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at    = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    cluster = relationship("MonitorCluster", back_populates="nodes")
 
     def __repr__(self) -> str:
         return f"<MonitorNode id={self.id} ip={self.ip} type={self.node_type}>"

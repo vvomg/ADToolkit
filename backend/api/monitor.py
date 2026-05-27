@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session
 from ..cmd.cmd_registry import EnrichedCommand, enrich_help_output, full_reference, lookup
 from ..core.config import settings
 from ..infrastructure.cmd_client import CMDClient, CMDError, CMDConnectionError, CMDAuthError
-from ..models.db_models import DeploymentRun, MonitorNode, get_db_engine, init_db
+from ..models.db_models import DeploymentRun, MonitorCluster, MonitorNode, get_db_engine, init_db
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +50,33 @@ def _get_session() -> Session:
 
 # ─── Pydantic models ─────────────────────────────────────────────
 
+class ClusterPublic(BaseModel):
+    id: int
+    name: str
+    color: str
+    description: Optional[str] = None
+    sort_order: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ClusterCreate(BaseModel):
+    name: str
+    color: str = "blue"
+    description: Optional[str] = None
+    sort_order: int = 0
+
+
+class ClusterUpdate(BaseModel):
+    name: Optional[str] = None
+    color: Optional[str] = None
+    description: Optional[str] = None
+    sort_order: Optional[int] = None
+
+
 class MonitorNodePublic(BaseModel):
     """Публичный вид ноды — пароли скрыты, только флаг наличия."""
     id: int
@@ -57,6 +84,7 @@ class MonitorNodePublic(BaseModel):
     hostname: Optional[str] = None
     display_name: Optional[str] = None
     node_type: str
+    cluster_id: Optional[int] = None
     ssh_user: str
     ssh_auth_mode: str
     ssh_key_path: Optional[str] = None
@@ -77,6 +105,7 @@ class MonitorNodeCreate(BaseModel):
     hostname: Optional[str] = None
     display_name: Optional[str] = None
     node_type: str
+    cluster_id: Optional[int] = None
     ssh_user: str = "user"
     ssh_auth_mode: str = "password"   # "password" | "key"
     ssh_password: Optional[str] = None
@@ -92,6 +121,7 @@ class MonitorNodeUpdate(BaseModel):
     hostname: Optional[str] = None
     display_name: Optional[str] = None
     node_type: Optional[str] = None
+    cluster_id: Optional[int] = None
     ssh_user: Optional[str] = None
     ssh_auth_mode: Optional[str] = None
     ssh_password: Optional[str] = None
@@ -145,6 +175,7 @@ def _to_public(node: MonitorNode) -> MonitorNodePublic:
         hostname=node.hostname,
         display_name=node.display_name,
         node_type=node.node_type,
+        cluster_id=node.cluster_id,
         ssh_user=node.ssh_user,
         ssh_auth_mode=node.ssh_auth_mode,
         ssh_key_path=node.ssh_key_path,
@@ -368,6 +399,7 @@ def create_node(body: MonitorNodeCreate) -> MonitorNodePublic:
             hostname=body.hostname,
             display_name=body.display_name,
             node_type=body.node_type,
+            cluster_id=body.cluster_id,
             ssh_user=body.ssh_user,
             ssh_auth_mode=body.ssh_auth_mode,
             ssh_password=body.ssh_password,
@@ -739,3 +771,144 @@ def get_cmd_reference_command(command_name: str) -> dict:
         "documented": True,
         "available": None,
     }
+
+
+# ─── Кластеры мониторинга ────────────────────────────────────────
+
+@router.get(
+    "/clusters",
+    summary="Список кластеров мониторинга",
+    response_model=List[ClusterPublic],
+)
+def list_clusters() -> List[ClusterPublic]:
+    session = _get_session()
+    try:
+        clusters = (
+            session.query(MonitorCluster)
+            .order_by(MonitorCluster.sort_order, MonitorCluster.id)
+            .all()
+        )
+        return [
+            ClusterPublic(
+                id=c.id,
+                name=c.name,
+                color=c.color,
+                description=c.description,
+                sort_order=c.sort_order,
+                created_at=c.created_at,
+                updated_at=c.updated_at,
+            )
+            for c in clusters
+        ]
+    finally:
+        session.close()
+
+
+@router.post(
+    "/clusters",
+    summary="Создать кластер мониторинга",
+    response_model=ClusterPublic,
+    status_code=201,
+)
+def create_cluster(body: ClusterCreate) -> ClusterPublic:
+    session = _get_session()
+    try:
+        cluster = MonitorCluster(
+            name=body.name,
+            color=body.color,
+            description=body.description,
+            sort_order=body.sort_order,
+        )
+        session.add(cluster)
+        session.commit()
+        session.refresh(cluster)
+        return ClusterPublic(
+            id=cluster.id,
+            name=cluster.name,
+            color=cluster.color,
+            description=cluster.description,
+            sort_order=cluster.sort_order,
+            created_at=cluster.created_at,
+            updated_at=cluster.updated_at,
+        )
+    finally:
+        session.close()
+
+
+@router.put(
+    "/clusters/{cluster_id}",
+    summary="Обновить кластер мониторинга",
+    response_model=ClusterPublic,
+)
+def update_cluster(cluster_id: int, body: ClusterUpdate) -> ClusterPublic:
+    session = _get_session()
+    try:
+        cluster = session.query(MonitorCluster).filter(MonitorCluster.id == cluster_id).first()
+        if not cluster:
+            raise HTTPException(status_code=404, detail=f"Кластер {cluster_id} не найден")
+        update_data = body.model_dump(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(cluster, field, value)
+        cluster.updated_at = datetime.utcnow()
+        session.commit()
+        session.refresh(cluster)
+        return ClusterPublic(
+            id=cluster.id,
+            name=cluster.name,
+            color=cluster.color,
+            description=cluster.description,
+            sort_order=cluster.sort_order,
+            created_at=cluster.created_at,
+            updated_at=cluster.updated_at,
+        )
+    finally:
+        session.close()
+
+
+@router.delete(
+    "/clusters/{cluster_id}",
+    summary="Удалить кластер (ноды остаются, cluster_id → null)",
+    status_code=204,
+)
+def delete_cluster(cluster_id: int) -> None:
+    session = _get_session()
+    try:
+        cluster = session.query(MonitorCluster).filter(MonitorCluster.id == cluster_id).first()
+        if not cluster:
+            raise HTTPException(status_code=404, detail=f"Кластер {cluster_id} не найден")
+        # Отвязываем ноды перед удалением
+        session.query(MonitorNode).filter(MonitorNode.cluster_id == cluster_id).update(
+            {"cluster_id": None}, synchronize_session=False
+        )
+        session.delete(cluster)
+        session.commit()
+    finally:
+        session.close()
+
+
+@router.patch(
+    "/nodes/{node_id}/cluster",
+    summary="Переместить ноду в кластер (или убрать из кластера)",
+    response_model=MonitorNodePublic,
+)
+def assign_node_cluster(
+    node_id: int,
+    cluster_id: Optional[int] = None,
+) -> MonitorNodePublic:
+    """cluster_id=null (или не передан) → убирает из кластера."""
+    session = _get_session()
+    try:
+        node = session.query(MonitorNode).filter(MonitorNode.id == node_id).first()
+        if not node:
+            raise HTTPException(status_code=404, detail=f"Нода {node_id} не найдена")
+        if cluster_id is not None:
+            exists = session.query(MonitorCluster).filter(MonitorCluster.id == cluster_id).first()
+            if not exists:
+                raise HTTPException(status_code=404, detail=f"Кластер {cluster_id} не найден")
+        node.cluster_id = cluster_id
+        node.updated_at = datetime.utcnow()
+        session.commit()
+        session.refresh(node)
+        return _to_public(node)
+    finally:
+        session.close()
