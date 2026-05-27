@@ -860,12 +860,14 @@ function ClusterBlock({
   const offlineCount = totalCount - onlineCount;
 
   const colorDotClass = cluster ? `bg-${cluster.color}` : "bg-overlay0";
-  const borderColor   = cluster ? `border-${cluster.color}/20` : "border-surface1";
+  const accentColor   = cluster ? `bg-${cluster.color}` : "bg-surface1";
 
   return (
-    <div className={`border rounded-2xl overflow-hidden ${borderColor}`}>
+    <div className="border border-surface1/30 rounded-2xl overflow-hidden">
+      {/* Thin accent line at top */}
+      <div className={`h-px ${accentColor} opacity-50`} />
       {/* Cluster header */}
-      <div className="flex items-center gap-3 px-4 py-3 bg-surface0/60 border-b border-surface1/50">
+      <div className={`flex items-center gap-3 px-4 py-3 bg-surface0/40 ${!collapsed ? "border-b border-surface1/30" : ""}`}>
         <button
           onClick={() => setCollapsed(!collapsed)}
           className="flex items-center gap-2 flex-1 min-w-0 text-left group"
@@ -920,9 +922,18 @@ function ClusterBlock({
         </div>
       </div>
 
-      {/* Cluster body */}
+      {/* Cluster body — animated */}
+      <AnimatePresence initial={false}>
       {!collapsed && (
-        <div className="p-4 space-y-5 bg-base/30">
+        <motion.div
+          key="body"
+          initial={{ height: 0, opacity: 0 }}
+          animate={{ height: "auto", opacity: 1 }}
+          exit={{ height: 0, opacity: 0 }}
+          transition={{ duration: 0.18, ease: "easeInOut" }}
+          className="overflow-hidden"
+        >
+        <div className="p-4 space-y-5 bg-base/20">
           {nodes.length === 0 && (
             <p className="text-[11px] text-overlay0 text-center py-4">
               Нет нод в этом {cluster ? "кластере" : "разделе"}.{" "}
@@ -993,7 +1004,9 @@ function ClusterBlock({
             />
           )}
         </div>
+        </motion.div>
       )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -1282,25 +1295,26 @@ export function Dashboard() {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
           <h1 className="text-xl font-semibold text-text">Dashboard</h1>
           {loading ? (
             <p className="text-subtext text-sm mt-0.5">Загрузка...</p>
           ) : registryEmpty ? (
             <p className="text-subtext text-sm mt-0.5">Реестр нод пуст</p>
           ) : (
-            <p className="text-subtext text-sm mt-0.5 flex items-center gap-1.5">
-              {clusters.length > 0 && <span>Кластеров: {clusters.length} · </span>}
-              Online: <span className="text-green font-medium">{onlineCount}</span>/{totalCount}
-              {offlineCount > 0 && <span className="text-red"> · {offlineCount} offline</span>}
+            <p className="text-subtext text-sm mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+              {clusters.length > 0 && <span>Кластеров: {clusters.length}</span>}
+              {clusters.length > 0 && <span className="text-overlay0">·</span>}
+              <span>Online: <span className="text-green font-medium">{onlineCount}</span>/{totalCount}</span>
+              {offlineCount > 0 && <><span className="text-overlay0">·</span><span className="text-red">{offlineCount} offline</span></>}
               {liveStatus?.checked_at && (
-                <span className="text-overlay0"> · {formatTime(liveStatus.checked_at)}</span>
+                <><span className="text-overlay0">·</span><span className="text-overlay0 font-mono text-xs">{formatTime(liveStatus.checked_at)}</span></>
               )}
             </p>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={() => setCreateClusterOpen(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-surface0 hover:bg-surface1 text-subtext text-sm rounded-lg border border-surface1 transition-colors"
