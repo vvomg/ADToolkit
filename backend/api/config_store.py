@@ -569,6 +569,8 @@ class DumpStreamRequest(BaseModel):
     hosts: list[str]
     include_objects: bool = False
     config_tag_name: str = ""
+    cmd_user: str = ""
+    cmd_password: str = ""
 
 
 class ApplyStreamRequest(BaseModel):
@@ -576,6 +578,8 @@ class ApplyStreamRequest(BaseModel):
     hosts: list[str]
     mode: str = "full"           # "full" | "diff"
     include_objects: bool = False
+    cmd_user: str = ""
+    cmd_password: str = ""
 
 
 class RollbackStreamRequest(BaseModel):
@@ -583,6 +587,13 @@ class RollbackStreamRequest(BaseModel):
     hosts: list[str]
     tag: str                     # имя git-тега (например "config-20240115T103000")
     mode: str = "yaml_only"      # "yaml_only" | "yaml_and_apply"
+    cmd_user: str = ""
+    cmd_password: str = ""
+
+
+def _cmd_env(user: str, password: str) -> dict[str, str]:
+    """Build IVAMAIL_CMD_* env dict for ansible-playbook subprocess."""
+    return {"IVAMAIL_CMD_USER": user, "IVAMAIL_CMD_PASSWORD": password}
 
 
 # ── 2.1: GET /api/config/git/tags ──────────────────────────────────────────
@@ -638,6 +649,7 @@ async def ansible_dump_stream_v2(body: DumpStreamRequest) -> StreamingResponse:
         gen = ar.stream_playbook(
             ar.PLAYBOOKS["config_dump"],
             extra_vars=extra_vars,
+            env=_cmd_env(body.cmd_user, body.cmd_password),
         )
         async for line in gen:
             yield f"data: {line}\n\n"
@@ -685,6 +697,7 @@ async def ansible_apply_stream_v2(
         gen = ar.stream_playbook(
             playbook_path,
             extra_vars={"backend_hosts": ",".join(body.hosts)},
+            env=_cmd_env(body.cmd_user, body.cmd_password),
         )
         async for line in gen:
             yield f"data: {line}\n\n"
@@ -762,6 +775,7 @@ async def ansible_rollback_stream(body: RollbackStreamRequest) -> StreamingRespo
         gen = ar.stream_playbook(
             playbook_path,
             extra_vars={"backend_hosts": ",".join(body.hosts)},
+            env=_cmd_env(body.cmd_user, body.cmd_password),
         )
         async for line in gen:
             yield f"data: {line}\n\n"

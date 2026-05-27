@@ -6,9 +6,10 @@ import {
   CheckCircle2, AlertTriangle, Plus, Minus,
   Save, RefreshCw, Clock, FileText, Loader2,
   KeyRound, Eye, EyeOff, AlertCircle, BookOpen, Search, Terminal,
+  Layers, Copy, Trash2, Pencil, X, ChevronUp, PlusCircle,
 } from "lucide-react";
 import { useDeployStore } from "@/stores/deployStore";
-import { configApi, type CmdCreds, type ConfigData, type DiffEntry, type GitCommit } from "@/api/configApi";
+import { configApi, type CmdCreds, type ConfigData, type DiffEntry, type GitCommit, type ProfileMeta, type ProfileFull } from "@/api/configApi";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -46,7 +47,7 @@ interface CMDMethodDoc {
 
 // ── Tab types ─────────────────────────────────────────────────────────────────
 
-type Tab = "editor" | "diff" | "history" | "playbooks" | "cmdref";
+type Tab = "editor" | "diff" | "history" | "playbooks" | "profiles" | "cmdref";
 
 // ── UI primitives ─────────────────────────────────────────────────────────────
 
@@ -122,6 +123,9 @@ function CredsBar({ user, pass, node, onChange }: CredsBarProps) {
   }, [node?.id, node?.cmd_user]);
 
   const apply = () => { onChange(localU, localP); setOpen(false); };
+  // Применять учётные данные немедленно при каждом изменении (без нажатия OK)
+  const onUserChange   = (v: string) => { setLocalU(v); onChange(v, localP); };
+  const onPassChange   = (v: string) => { setLocalP(v); onChange(localU, v); };
 
   const handleLoadPassword = async () => {
     if (!node) return;
@@ -147,7 +151,7 @@ function CredsBar({ user, pass, node, onChange }: CredsBarProps) {
         <>
           <input
             value={localU}
-            onChange={(e) => setLocalU(e.target.value)}
+            onChange={(e) => onUserChange(e.target.value)}
             placeholder="user"
             className="text-xs font-mono bg-surface1 rounded px-2 py-0.5 w-24 outline-none focus:ring-1 focus:ring-blue/50 text-text"
           />
@@ -156,7 +160,7 @@ function CredsBar({ user, pass, node, onChange }: CredsBarProps) {
               <input
                 type={showPw ? "text" : "password"}
                 value={localP}
-                onChange={(e) => setLocalP(e.target.value)}
+                onChange={(e) => onPassChange(e.target.value)}
                 placeholder="password"
                 className="text-xs font-mono bg-surface1 rounded px-2 py-0.5 pr-7 w-32 outline-none focus:ring-1 focus:ring-blue/50 text-text"
                 onKeyDown={(e) => e.key === "Enter" && apply()}
@@ -746,7 +750,8 @@ function DiffTab({ node, creds }: { node: MonitorNodeInfo; creds: CmdCreds }) {
   const [compared, setCompared] = useState(false);
   const [error,    setError]    = useState<string | null>(null);
   const [isIdentical, setIsIdentical] = useState(false);
-  const [availableModules, setAvailableModules] = useState<string[]>(FALLBACK_MODULES);
+  const [availableModules,  setAvailableModules]  = useState<string[]>(FALLBACK_MODULES);
+  const [modulesSource,     setModulesSource]      = useState<"live" | "stored" | "fallback">("fallback");
 
   // Apply stream state
   const [applyRunning, setApplyRunning] = useState(false);
@@ -755,12 +760,38 @@ function DiffTab({ node, creds }: { node: MonitorNodeInfo; creds: CmdCreds }) {
   const applyTermRef                    = useRef<HTMLPreElement>(null);
   const applyAbortRef                   = useRef<AbortController | null>(null);
 
-  // Загрузить модули из config-store для текущей ноды
+  // Загружаем модули: 1) live CMD (если есть пароль), 2) config-store, 3) fallback
   useEffect(() => {
-    configApi.stored.listModules(node.ip)
-      .then((mods) => { if (mods.length > 0) setAvailableModules(mods); })
-      .catch(() => {});
-  }, [node.ip]);
+    let cancelled = false;
+
+    const load = async () => {
+      // 1. Live — точный список с ноды
+      if (creds.pass.trim()) {
+        try {
+          const mods = await configApi.live.listModules(node.ip, creds);
+          if (!cancelled && mods.length > 0) {
+            setAvailableModules(mods);
+            setModulesSource("live");
+            return;
+          }
+        } catch { /* fall through */ }
+      }
+      // 2. Stored — что есть в config-store
+      try {
+        const mods = await configApi.stored.listModules(node.ip);
+        if (!cancelled && mods.length > 0) {
+          setAvailableModules(mods);
+          setModulesSource("stored");
+          return;
+        }
+      } catch { /* fall through */ }
+      // 3. Fallback
+      if (!cancelled) setModulesSource("fallback");
+    };
+
+    load();
+    return () => { cancelled = true; };
+  }, [node.ip, creds.user, creds.pass]);
 
   useEffect(() => {
     if (applyTermRef.current) applyTermRef.current.scrollTop = applyTermRef.current.scrollHeight;
@@ -797,6 +828,8 @@ function DiffTab({ node, creds }: { node: MonitorNodeInfo; creds: CmdCreds }) {
       [node.ip],
       "full",
       APPLY_INCLUDE_OBJECTS,
+      creds.user,
+      creds.pass,
       (line) => setApplyLines((prev) => [...prev, line]),
       (ok)   => { setApplyRunning(false); setApplyExitOk(ok); },
     );
@@ -814,7 +847,16 @@ function DiffTab({ node, creds }: { node: MonitorNodeInfo; creds: CmdCreds }) {
     <div className="p-5 space-y-4">
       <div className="flex items-center gap-3">
         <div>
-          <label className="text-xs text-subtext block mb-1">Модуль</label>
+          <label className="text-xs text-subtext block mb-1 flex items-center gap-1.5">
+            Модуль
+            <span className={`text-[10px] px-1.5 py-0 rounded font-normal ${
+              modulesSource === "live"     ? "bg-green/15 text-green"    :
+              modulesSource === "stored"   ? "bg-blue/15 text-blue"      :
+                                            "bg-surface1 text-overlay0"
+            }`}>
+              {modulesSource === "live" ? "live" : modulesSource === "stored" ? "stored" : "fallback"}
+            </span>
+          </label>
           <select
             value={module}
             onChange={(e) => { setModule(e.target.value); setCompared(false); }}
@@ -928,7 +970,7 @@ function DiffTab({ node, creds }: { node: MonitorNodeInfo; creds: CmdCreds }) {
 
 // ── Tab: История ──────────────────────────────────────────────────────────────
 
-function HistoryTab({ node }: { node: MonitorNodeInfo }) {
+function HistoryTab({ node, creds }: { node: MonitorNodeInfo; creds: CmdCreds }) {
   const [commits,        setCommits]        = useState<GitCommit[]>([]);
   const [selectedCommit, setSelectedCommit] = useState<GitCommit | null>(null);
   const [diff,           setDiff]           = useState<string | null>(null);
@@ -1015,13 +1057,15 @@ function HistoryTab({ node }: { node: MonitorNodeInfo }) {
       [node.ip],
       tag,
       mode,
+      creds.user,
+      creds.pass,
       (line) => setTagRbLines((prev) => [...prev, line]),
       (ok)   => { setTagRbRunning(null); setTagRbExitOk(ok); },
     );
   };
 
   return (
-    <div className="p-5 space-y-4">
+    <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-4">
       {error && <ErrMsg msg={error} />}
 
       {/* Git Tags — Config Snapshots */}
@@ -1134,7 +1178,7 @@ function HistoryTab({ node }: { node: MonitorNodeInfo }) {
             </p>
           )}
 
-          <div className="divide-y divide-surface1/30">
+          <div className="divide-y divide-surface1/30 max-h-80 overflow-y-auto">
             {commits.map((commit) => {
               const active = selectedCommit?.hash === commit.hash;
               return (
@@ -1197,7 +1241,7 @@ function HistoryTab({ node }: { node: MonitorNodeInfo }) {
             )}
 
             {diff && !loadingDiff && (
-              <pre className="text-[11px] font-mono p-4 leading-relaxed">
+              <pre className="text-[11px] font-mono p-4 leading-relaxed min-h-48">
                 {diff.split("\n").map((line, i) => {
                   const cls =
                     line.startsWith("+++") || line.startsWith("---") ? "text-subtext" :
@@ -1216,6 +1260,1003 @@ function HistoryTab({ node }: { node: MonitorNodeInfo }) {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Tab: Profiles ─────────────────────────────────────────────────────────────
+
+function ProfilesTab({ nodes, creds }: { nodes: MonitorNodeInfo[]; creds: CmdCreds }) {
+  // Sub-view: library (two-panel) or matrix
+  const [view, setView] = useState<"library" | "matrix">("library");
+
+  // Profile list
+  const [profiles,      setProfiles]      = useState<ProfileMeta[]>([]);
+  const [loading,       setLoading]       = useState(true);
+  const [error,         setError]         = useState<string | null>(null);
+
+  // Right-panel: selected profile detail
+  const [selected,      setSelected]      = useState<ProfileFull | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  // New profile creation
+  const [newName, setNewName]             = useState("");
+  const [creating, setCreating]           = useState(false);
+  const [showNewInput, setShowNewInput]   = useState(false);
+
+  // Inline rename
+  const [renaming,    setRenaming]        = useState(false);
+  const [renameValue, setRenameValue]     = useState("");
+
+  // Notes editing
+  const [editingNotes, setEditingNotes]   = useState(false);
+  const [notesValue,   setNotesValue]     = useState("");
+
+  // Module collapse state: module name → expanded bool
+  const [expandedMods, setExpandedMods]   = useState<Record<string, boolean>>({});
+
+  // Module JSON editing: module name → json string
+  const [editingMod,   setEditingMod]     = useState<string | null>(null);
+  const [editModJson,  setEditModJson]    = useState("");
+  const [savingMod,    setSavingMod]      = useState(false);
+  const [modError,     setModError]       = useState<string | null>(null);
+
+  // Apply (SSE)
+  const [applyHosts,    setApplyHosts]    = useState<Set<string>>(new Set());
+  const [applyRunning,  setApplyRunning]  = useState(false);
+  const [applyLines,    setApplyLines]    = useState<string[]>([]);
+  const [applyExitOk,   setApplyExitOk]  = useState<boolean | null>(null);
+  const applyTermRef                      = useRef<HTMLPreElement>(null);
+  const applyAbortRef                     = useRef<AbortController | null>(null);
+
+  // Pull drawer
+  const [pullOpen,    setPullOpen]        = useState(false);
+  const [pullIp,      setPullIp]          = useState("");
+  const [pullModules, setPullModules]     = useState<string[]>(FALLBACK_MODULES);
+  const [pullLoading, setPullLoading]     = useState(false);
+  const [pullError,   setPullError]       = useState<string | null>(null);
+
+  // Search filter
+  const [search, setSearch]               = useState("");
+
+  // Matrix: popover state
+  const [matrixPopover, setMatrixPopover] = useState<{ slug: string; mod: string } | null>(null);
+
+  // ── Lifecycle ────────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    loadProfiles();
+  }, []);
+
+  useEffect(() => {
+    if (applyTermRef.current) {
+      applyTermRef.current.scrollTop = applyTermRef.current.scrollHeight;
+    }
+  }, [applyLines]);
+
+  useEffect(() => () => { applyAbortRef.current?.abort(); }, []);
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  async function loadProfiles() {
+    setLoading(true);
+    setError(null);
+    try {
+      const list = await configApi.profiles.list();
+      setProfiles(list);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function openProfile(slug: string) {
+    setDetailLoading(true);
+    setSelected(null);
+    setEditingMod(null);
+    setModError(null);
+    setExpandedMods({});
+    setApplyLines([]);
+    setApplyExitOk(null);
+    setPullOpen(false);
+    try {
+      const full = await configApi.profiles.get(slug);
+      setSelected(full);
+      setRenameValue(full.name);
+      setNotesValue(full.notes ?? "");
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setDetailLoading(false);
+    }
+  }
+
+  async function handleCreate() {
+    if (!newName.trim()) return;
+    setCreating(true);
+    setError(null);
+    try {
+      const full = await configApi.profiles.create(newName.trim());
+      setProfiles((prev) => [...prev, {
+        slug: full.slug, name: full.name, created_at: full.created_at,
+        updated_at: full.updated_at, notes: full.notes, module_names: full.module_names,
+      }]);
+      setNewName("");
+      setShowNewInput(false);
+      await openProfile(full.slug);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function handleRename() {
+    if (!selected || !renameValue.trim()) { setRenaming(false); return; }
+    try {
+      const updated = await configApi.profiles.update(selected.slug, { name: renameValue.trim() });
+      setSelected(updated);
+      setProfiles((prev) => prev.map((p) => p.slug === updated.slug
+        ? { ...p, name: updated.name } : p));
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setRenaming(false);
+    }
+  }
+
+  async function handleSaveNotes() {
+    if (!selected) return;
+    setEditingNotes(false);
+    try {
+      const updated = await configApi.profiles.update(selected.slug, { notes: notesValue });
+      setSelected(updated);
+      setProfiles((prev) => prev.map((p) => p.slug === updated.slug
+        ? { ...p, notes: updated.notes } : p));
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function handleDuplicate() {
+    if (!selected) return;
+    const name = window.prompt("Имя нового профиля:", `${selected.name} (копия)`);
+    if (!name) return;
+    try {
+      const dup = await configApi.profiles.duplicate(selected.slug, name);
+      setProfiles((prev) => [...prev, {
+        slug: dup.slug, name: dup.name, created_at: dup.created_at,
+        updated_at: dup.updated_at, notes: dup.notes, module_names: dup.module_names,
+      }]);
+      await openProfile(dup.slug);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function handleDelete() {
+    if (!selected) return;
+    if (!window.confirm(`Удалить профиль «${selected.name}»? Это действие нельзя отменить.`)) return;
+    try {
+      await configApi.profiles.remove(selected.slug);
+      setProfiles((prev) => prev.filter((p) => p.slug !== selected.slug));
+      setSelected(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function handleRemoveModule(modName: string) {
+    if (!selected) return;
+    if (!window.confirm(`Удалить модуль «${modName}» из профиля?`)) return;
+    setModError(null);
+    try {
+      const updated = await configApi.profiles.removeModule(selected.slug, modName);
+      setSelected(updated);
+      setProfiles((prev) => prev.map((p) => p.slug === updated.slug
+        ? { ...p, module_names: updated.module_names } : p));
+    } catch (e) {
+      setModError(String(e));
+    }
+  }
+
+  function startEditMod(modName: string) {
+    if (!selected) return;
+    setEditingMod(modName);
+    setEditModJson(JSON.stringify(selected.modules[modName] ?? {}, null, 2));
+    setModError(null);
+  }
+
+  async function handleSaveMod() {
+    if (!selected || !editingMod) return;
+    setSavingMod(true);
+    setModError(null);
+    try {
+      const parsed = JSON.parse(editModJson) as Record<string, unknown>;
+      const updated = await configApi.profiles.upsertModule(selected.slug, editingMod, parsed);
+      setSelected(updated);
+      setProfiles((prev) => prev.map((p) => p.slug === updated.slug
+        ? { ...p, module_names: updated.module_names } : p));
+      setEditingMod(null);
+    } catch (e) {
+      setModError(e instanceof SyntaxError ? `JSON ошибка: ${e.message}` : String(e));
+    } finally {
+      setSavingMod(false);
+    }
+  }
+
+  function handleApply() {
+    if (!selected || applyHosts.size === 0) return;
+    applyAbortRef.current?.abort();
+    setApplyRunning(true);
+    setApplyExitOk(null);
+    setApplyLines([`[${new Date().toLocaleTimeString("ru")}] Применение профиля «${selected.name}» → ${[...applyHosts].join(", ")}...`, ""]);
+    applyAbortRef.current = configApi.profiles.streamApply(
+      selected.slug,
+      [...applyHosts],
+      undefined,
+      creds.user,
+      creds.pass,
+      (line) => setApplyLines((prev) => [...prev, line]),
+      (ok)   => { setApplyRunning(false); setApplyExitOk(ok); },
+    );
+  }
+
+  async function handlePull() {
+    if (!selected || !pullIp) return;
+    setPullLoading(true);
+    setPullError(null);
+    try {
+      const updated = await configApi.profiles.pull(
+        selected.slug, pullIp, pullModules, creds.user, creds.pass,
+      );
+      setSelected(updated);
+      setProfiles((prev) => prev.map((p) => p.slug === updated.slug
+        ? { ...p, module_names: updated.module_names } : p));
+      setPullOpen(false);
+    } catch (e) {
+      setPullError(String(e));
+    } finally {
+      setPullLoading(false);
+    }
+  }
+
+  // ── Derived ───────────────────────────────────────────────────────────────
+
+  const backendNodes = nodes.filter((n) => n.node_type === "ivamail_backend");
+  const filteredProfiles = profiles.filter((p) =>
+    !search.trim() || p.name.toLowerCase().includes(search.toLowerCase()),
+  );
+
+  // All unique module names across all profiles (for matrix)
+  const allModNames = useMemo(() => {
+    const s = new Set<string>();
+    profiles.forEach((p) => p.module_names.forEach((m) => s.add(m)));
+    return [...s].sort();
+  }, [profiles]);
+
+  // ── Matrix apply (per-row) ────────────────────────────────────────────────
+
+  const [matrixApplySlug,    setMatrixApplySlug]    = useState<string | null>(null);
+  const [matrixApplyHosts,   setMatrixApplyHosts]   = useState<Set<string>>(new Set());
+  const [matrixApplyRunning, setMatrixApplyRunning] = useState(false);
+  const [matrixApplyLines,   setMatrixApplyLines]   = useState<string[]>([]);
+  const [matrixApplyExitOk,  setMatrixApplyExitOk]  = useState<boolean | null>(null);
+  const matrixTermRef                                = useRef<HTMLPreElement>(null);
+  const matrixAbortRef                               = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    if (matrixTermRef.current) {
+      matrixTermRef.current.scrollTop = matrixTermRef.current.scrollHeight;
+    }
+  }, [matrixApplyLines]);
+
+  useEffect(() => () => { matrixAbortRef.current?.abort(); }, []);
+
+  function handleMatrixApply(slug: string) {
+    if (matrixApplyHosts.size === 0) return;
+    const prof = profiles.find((p) => p.slug === slug);
+    matrixAbortRef.current?.abort();
+    setMatrixApplyRunning(true);
+    setMatrixApplyExitOk(null);
+    setMatrixApplyLines([`[${new Date().toLocaleTimeString("ru")}] Применение профиля «${prof?.name ?? slug}» → ${[...matrixApplyHosts].join(", ")}...`, ""]);
+    matrixAbortRef.current = configApi.profiles.streamApply(
+      slug,
+      [...matrixApplyHosts],
+      undefined,
+      creds.user,
+      creds.pass,
+      (line) => setMatrixApplyLines((prev) => [...prev, line]),
+      (ok)   => { setMatrixApplyRunning(false); setMatrixApplyExitOk(ok); },
+    );
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* Sub-tab bar */}
+      <div className="flex items-center gap-2 px-5 py-2.5 border-b border-surface1 bg-mantle/30 shrink-0">
+        <button
+          onClick={() => setView("library")}
+          className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors ${
+            view === "library" ? "bg-blue/15 text-blue" : "text-subtext hover:text-text hover:bg-surface1/50"
+          }`}
+        >
+          <FileText size={11} />
+          Библиотека
+        </button>
+        <button
+          onClick={() => setView("matrix")}
+          className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors ${
+            view === "matrix" ? "bg-blue/15 text-blue" : "text-subtext hover:text-text hover:bg-surface1/50"
+          }`}
+        >
+          <Layers size={11} />
+          Матрица
+        </button>
+        <div className="ml-auto text-[10px] text-overlay0">
+          {profiles.length} профил{profiles.length === 1 ? "ь" : profiles.length < 5 ? "я" : "ей"}
+        </div>
+      </div>
+
+      {error && (
+        <div className="px-5 pt-3 shrink-0">
+          <ErrMsg msg={error} />
+        </div>
+      )}
+
+      {/* ── Library view ── */}
+      {view === "library" && (
+        <div className="flex flex-1 min-h-0 overflow-hidden relative">
+          {/* Left panel: profile list */}
+          <div className="w-64 shrink-0 border-r border-surface1 flex flex-col bg-mantle/20">
+            {/* Search + New */}
+            <div className="p-3 border-b border-surface1 space-y-2">
+              <div className="flex items-center gap-2 bg-surface0 rounded-lg px-2.5 py-1.5 ring-1 ring-transparent focus-within:ring-blue/30 transition-all">
+                <Search size={11} className="text-overlay0 shrink-0" />
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Поиск профиля..."
+                  className="flex-1 text-xs bg-transparent outline-none text-text placeholder-overlay0"
+                />
+              </div>
+              {showNewInput ? (
+                <div className="flex items-center gap-1.5">
+                  <input
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleCreate();
+                      if (e.key === "Escape") { setShowNewInput(false); setNewName(""); }
+                    }}
+                    placeholder="Название профиля"
+                    autoFocus
+                    className="flex-1 text-xs bg-surface0 border border-surface1 rounded-lg px-2.5 py-1.5 outline-none focus:border-blue text-text"
+                  />
+                  <button
+                    onClick={handleCreate}
+                    disabled={creating || !newName.trim()}
+                    className="text-xs bg-blue/90 hover:bg-blue disabled:opacity-40 text-mantle font-semibold px-2.5 py-1.5 rounded-lg transition-colors"
+                  >
+                    {creating ? <Loader2 size={10} className="animate-spin" /> : "OK"}
+                  </button>
+                  <button
+                    onClick={() => { setShowNewInput(false); setNewName(""); }}
+                    className="text-overlay0 hover:text-text transition-colors"
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowNewInput(true)}
+                  className="w-full flex items-center gap-1.5 text-xs text-subtext hover:text-blue hover:bg-blue/5 border border-dashed border-surface2 hover:border-blue/30 rounded-lg px-2.5 py-1.5 transition-colors"
+                >
+                  <PlusCircle size={11} />
+                  Новый профиль
+                </button>
+              )}
+            </div>
+
+            {/* Profile list */}
+            <div className="flex-1 overflow-y-auto">
+              {loading && (
+                <div className="flex items-center gap-2 px-4 py-6 text-xs text-overlay0">
+                  <Loader2 size={12} className="animate-spin" /> Загрузка...
+                </div>
+              )}
+              {!loading && filteredProfiles.length === 0 && (
+                <p className="px-4 py-6 text-xs text-overlay0 italic text-center">
+                  {search ? "Ничего не найдено" : "Нет профилей"}
+                </p>
+              )}
+              {filteredProfiles.map((p) => {
+                const isActive = selected?.slug === p.slug;
+                return (
+                  <button
+                    key={p.slug}
+                    onClick={() => openProfile(p.slug)}
+                    className={`w-full text-left px-4 py-3 transition-colors border-b border-surface1/30 ${
+                      isActive ? "bg-blue/8 border-l-2 border-l-blue" : "hover:bg-surface1/30"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className={`text-xs font-medium truncate ${isActive ? "text-blue" : "text-text"}`}>
+                        {p.name}
+                      </span>
+                      <span className="text-[10px] text-overlay0 shrink-0 ml-1 font-mono">
+                        {p.module_names.length} мод.
+                      </span>
+                    </div>
+                    {p.notes && (
+                      <p className="text-[10px] text-overlay0 truncate leading-tight">{p.notes}</p>
+                    )}
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {p.module_names.slice(0, 4).map((m) => (
+                        <span key={m} className="text-[9px] bg-surface1 text-overlay0 px-1 py-0 rounded font-mono">
+                          {m}
+                        </span>
+                      ))}
+                      {p.module_names.length > 4 && (
+                        <span className="text-[9px] text-overlay0">+{p.module_names.length - 4}</span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Right panel: profile detail */}
+          <div className="flex-1 flex flex-col overflow-hidden relative">
+            {detailLoading && (
+              <div className="flex items-center justify-center h-full gap-2 text-overlay0 text-sm">
+                <Loader2 size={14} className="animate-spin" /> Загрузка профиля...
+              </div>
+            )}
+
+            {!detailLoading && !selected && (
+              <div className="flex items-center justify-center h-full text-overlay0 text-sm">
+                Выберите профиль из списка слева
+              </div>
+            )}
+
+            {!detailLoading && selected && (
+              <div className="flex flex-col h-full overflow-hidden">
+                {/* Header */}
+                <div className="px-5 py-3 border-b border-surface1 shrink-0">
+                  <div className="flex items-center justify-between gap-3">
+                    {/* Inline rename */}
+                    {renaming ? (
+                      <input
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onBlur={handleRename}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleRename();
+                          if (e.key === "Escape") setRenaming(false);
+                        }}
+                        autoFocus
+                        className="text-sm font-semibold bg-surface1 rounded-lg px-2 py-0.5 outline-none focus:ring-1 focus:ring-blue/50 text-text flex-1 max-w-xs"
+                      />
+                    ) : (
+                      <h2
+                        className="text-sm font-semibold text-text cursor-pointer hover:text-blue transition-colors flex-1 truncate"
+                        onClick={() => { setRenaming(true); setRenameValue(selected.name); }}
+                        title="Нажмите для переименования"
+                      >
+                        {selected.name}
+                      </h2>
+                    )}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        onClick={() => { setRenaming(true); setRenameValue(selected.name); }}
+                        title="Переименовать"
+                        className="p-1.5 text-overlay0 hover:text-blue hover:bg-blue/10 rounded-lg transition-colors"
+                      >
+                        <Pencil size={12} />
+                      </button>
+                      <button
+                        onClick={handleDuplicate}
+                        title="Дублировать"
+                        className="p-1.5 text-overlay0 hover:text-mauve hover:bg-mauve/10 rounded-lg transition-colors"
+                      >
+                        <Copy size={12} />
+                      </button>
+                      <button
+                        onClick={handleDelete}
+                        title="Удалить профиль"
+                        className="p-1.5 text-overlay0 hover:text-red hover:bg-red/10 rounded-lg transition-colors"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Notes */}
+                  {editingNotes ? (
+                    <div className="mt-2 space-y-1">
+                      <textarea
+                        value={notesValue}
+                        onChange={(e) => setNotesValue(e.target.value)}
+                        rows={2}
+                        className="w-full text-xs bg-surface1 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-blue/40 text-text resize-none"
+                      />
+                      <div className="flex gap-1.5">
+                        <button
+                          onClick={handleSaveNotes}
+                          className="text-[11px] bg-blue/90 hover:bg-blue text-mantle font-semibold px-2.5 py-0.5 rounded-lg transition-colors"
+                        >
+                          Сохранить
+                        </button>
+                        <button
+                          onClick={() => { setEditingNotes(false); setNotesValue(selected.notes ?? ""); }}
+                          className="text-[11px] text-subtext hover:text-text transition-colors"
+                        >
+                          Отмена
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p
+                      className="text-xs text-overlay0 mt-1 cursor-pointer hover:text-subtext transition-colors"
+                      onClick={() => { setEditingNotes(true); setNotesValue(selected.notes ?? ""); }}
+                      title="Нажмите для редактирования заметок"
+                    >
+                      {selected.notes || <span className="italic">Добавить заметку…</span>}
+                    </p>
+                  )}
+
+                  <p className="text-[10px] text-overlay0 mt-1 font-mono">
+                    slug: {selected.slug} · обновлён: {selected.updated_at.slice(0, 16).replace("T", " ")}
+                  </p>
+                </div>
+
+                {/* Scrollable body */}
+                <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+                  {/* Modules section */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-[10px] font-semibold text-overlay0 uppercase tracking-widest">
+                        Модули ({selected.module_names.length})
+                      </p>
+                      <button
+                        onClick={() => setPullOpen(true)}
+                        className="flex items-center gap-1 text-[11px] text-blue hover:text-blue/80 hover:bg-blue/5 px-2 py-1 rounded-lg transition-colors"
+                      >
+                        <Download size={11} />
+                        Добавить с ноды
+                      </button>
+                    </div>
+
+                    {modError && <ErrMsg msg={modError} />}
+
+                    {selected.module_names.length === 0 && (
+                      <p className="text-xs text-overlay0 italic text-center py-4">
+                        Нет модулей. Загрузите с ноды или добавьте вручную.
+                      </p>
+                    )}
+
+                    <div className="space-y-2">
+                      {selected.module_names.map((modName) => {
+                        const expanded  = expandedMods[modName] ?? false;
+                        const modConfig = selected.modules[modName] ?? {};
+                        const entries   = Object.entries(modConfig).filter(([k]) => !k.startsWith("_"));
+                        const isEditing = editingMod === modName;
+
+                        return (
+                          <div key={modName} className="bg-surface0 border border-surface1 rounded-xl overflow-hidden">
+                            <div className="flex items-center gap-2 px-3 py-2">
+                              <button
+                                onClick={() => setExpandedMods((prev) => ({ ...prev, [modName]: !prev[modName] }))}
+                                className="flex items-center gap-1.5 flex-1 text-left"
+                              >
+                                {expanded
+                                  ? <ChevronUp   size={12} className="text-overlay0 shrink-0" />
+                                  : <ChevronRight size={12} className="text-overlay0 shrink-0" />}
+                                <span className="text-xs font-mono font-medium text-text">{modName}</span>
+                                <span className="text-[10px] text-overlay0 font-mono ml-1">
+                                  {entries.length} ключей
+                                </span>
+                              </button>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  onClick={() => startEditMod(modName)}
+                                  title="Редактировать JSON"
+                                  className="p-1 text-overlay0 hover:text-blue hover:bg-blue/10 rounded transition-colors"
+                                >
+                                  <Pencil size={11} />
+                                </button>
+                                <button
+                                  onClick={() => handleRemoveModule(modName)}
+                                  title="Удалить модуль"
+                                  className="p-1 text-overlay0 hover:text-red hover:bg-red/10 rounded transition-colors"
+                                >
+                                  <X size={11} />
+                                </button>
+                              </div>
+                            </div>
+
+                            <AnimatePresence initial={false}>
+                              {expanded && (
+                                <motion.div
+                                  initial={{ height: 0, opacity: 0 }}
+                                  animate={{ height: "auto", opacity: 1 }}
+                                  exit={{ height: 0, opacity: 0 }}
+                                  transition={{ duration: 0.15 }}
+                                  className="overflow-hidden border-t border-surface1"
+                                >
+                                  {isEditing ? (
+                                    <div className="p-3 space-y-2">
+                                      <textarea
+                                        value={editModJson}
+                                        onChange={(e) => setEditModJson(e.target.value)}
+                                        rows={8}
+                                        className="w-full text-[11px] font-mono bg-mantle rounded-lg px-3 py-2 outline-none focus:ring-1 focus:ring-blue/40 text-text resize-y"
+                                      />
+                                      {modError && <ErrMsg msg={modError} />}
+                                      <div className="flex gap-2">
+                                        <button
+                                          onClick={handleSaveMod}
+                                          disabled={savingMod}
+                                          className="flex items-center gap-1.5 text-xs bg-blue/90 hover:bg-blue disabled:opacity-50 text-mantle font-semibold px-3 py-1.5 rounded-lg transition-colors"
+                                        >
+                                          {savingMod ? <Loader2 size={10} className="animate-spin" /> : <Save size={10} />}
+                                          Сохранить
+                                        </button>
+                                        <button
+                                          onClick={() => { setEditingMod(null); setModError(null); }}
+                                          className="text-xs text-subtext hover:text-text transition-colors px-3 py-1.5"
+                                        >
+                                          Отмена
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="px-4 py-2">
+                                      {entries.length === 0 ? (
+                                        <p className="text-[11px] text-overlay0 italic py-1">Пусто</p>
+                                      ) : (
+                                        <table className="w-full text-[11px] font-mono">
+                                          <tbody>
+                                            {entries.map(([k, v]) => (
+                                              <tr key={k} className="border-b border-surface1/40 last:border-0">
+                                                <td className="py-1 pr-3 text-mauve w-48 truncate">{k}</td>
+                                                <td className="py-1 text-subtext truncate max-w-xs">
+                                                  {Array.isArray(v) ? (v as unknown[]).join(", ") : String(v ?? "")}
+                                                </td>
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                        </table>
+                                      )}
+                                    </div>
+                                  )}
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Apply section */}
+                  <div className="bg-surface0 border border-surface1 rounded-xl p-4 space-y-3">
+                    <p className="text-[10px] font-semibold text-overlay0 uppercase tracking-widest">
+                      Применить профиль
+                    </p>
+                    {backendNodes.length === 0 ? (
+                      <p className="text-xs text-overlay0 italic">Нет backend-нод</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {backendNodes.map((n) => {
+                          const label    = n.display_name || n.hostname || n.ip;
+                          const checked  = applyHosts.has(n.ip);
+                          return (
+                            <label key={n.ip} className="flex items-center gap-1.5 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={(e) => setApplyHosts((prev) => {
+                                  const next = new Set(prev);
+                                  if (e.target.checked) next.add(n.ip); else next.delete(n.ip);
+                                  return next;
+                                })}
+                                className="accent-blue w-3.5 h-3.5"
+                              />
+                              <span className="text-xs text-subtext font-mono">{label}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                    <button
+                      onClick={handleApply}
+                      disabled={applyRunning || applyHosts.size === 0}
+                      className="flex items-center gap-1.5 text-xs bg-green/10 hover:bg-green/20 disabled:opacity-50 text-green border border-green/30 font-semibold px-4 py-1.5 rounded-lg transition-colors"
+                    >
+                      {applyRunning ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />}
+                      Применить на выбранные →
+                    </button>
+
+                    {applyLines.length > 0 && (
+                      <div className="bg-mantle/50 border border-surface1 rounded-xl overflow-hidden">
+                        <div className="px-4 py-2 border-b border-surface1 flex items-center gap-2">
+                          <Terminal size={11} className="text-overlay0" />
+                          <span className={`w-2 h-2 rounded-full ${
+                            applyRunning           ? "bg-green animate-pulse" :
+                            applyExitOk === true  ? "bg-green"               :
+                            applyExitOk === false ? "bg-red"                 :
+                            "bg-overlay0"
+                          }`} />
+                          <span className="text-xs font-mono text-subtext">
+                            {applyRunning
+                              ? "Применение..."
+                              : applyExitOk === true
+                                ? "Завершено успешно"
+                                : applyExitOk === false
+                                  ? "Завершено с ошибкой"
+                                  : "Вывод"}
+                          </span>
+                        </div>
+                        <pre ref={applyTermRef} className="font-mono text-[11px] h-48 overflow-y-auto p-4 leading-relaxed">
+                          {applyLines.map((line, i) => (
+                            <div key={i} className={ansibleLineColor(line)}>{line || " "}</div>
+                          ))}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Pull drawer */}
+            <AnimatePresence>
+              {pullOpen && selected && (
+                <motion.div
+                  initial={{ x: 320, opacity: 0 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  exit={{ x: 320, opacity: 0 }}
+                  transition={{ duration: 0.18 }}
+                  className="absolute right-0 top-0 bottom-0 w-80 bg-mantle border-l border-surface1 p-5 z-10 flex flex-col shadow-xl"
+                >
+                  <div className="flex items-center justify-between mb-4 shrink-0">
+                    <h3 className="text-sm font-semibold text-text">Загрузить с ноды</h3>
+                    <button
+                      onClick={() => { setPullOpen(false); setPullError(null); }}
+                      className="text-overlay0 hover:text-text transition-colors"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+
+                  <div className="space-y-4 flex-1 overflow-y-auto">
+                    {/* Node selector */}
+                    <div>
+                      <label className="text-xs text-subtext block mb-1">Нода</label>
+                      <select
+                        value={pullIp}
+                        onChange={(e) => setPullIp(e.target.value)}
+                        className="w-full text-xs bg-surface0 border border-surface1 rounded-lg px-3 py-1.5 text-text focus:border-blue outline-none"
+                      >
+                        <option value="">— выберите —</option>
+                        {nodes.map((n) => (
+                          <option key={n.ip} value={n.ip}>
+                            {n.display_name || n.hostname || n.ip} ({n.ip})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Module checkboxes */}
+                    <div>
+                      <label className="text-xs text-subtext block mb-1.5">Модули для загрузки</label>
+                      <div className="space-y-1 max-h-48 overflow-y-auto">
+                        {FALLBACK_MODULES.map((m) => (
+                          <label key={m} className="flex items-center gap-2 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={pullModules.includes(m)}
+                              onChange={(e) => setPullModules((prev) =>
+                                e.target.checked ? [...prev, m] : prev.filter((x) => x !== m),
+                              )}
+                              className="accent-blue w-3.5 h-3.5"
+                            />
+                            <span className="text-xs text-subtext font-mono">{m}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    {pullError && <ErrMsg msg={pullError} />}
+
+                    <div className="text-[10px] text-overlay0 leading-relaxed">
+                      CMD учётные данные: <span className="font-mono text-subtext">{creds.user}</span>
+                      {creds.pass ? " ●" : " — пароль не задан"}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handlePull}
+                    disabled={pullLoading || !pullIp || pullModules.length === 0}
+                    className="w-full flex items-center justify-center gap-2 text-xs bg-blue/90 hover:bg-blue disabled:opacity-50 text-mantle font-semibold py-2 rounded-lg transition-colors mt-4 shrink-0"
+                  >
+                    {pullLoading ? <Loader2 size={11} className="animate-spin" /> : <Download size={11} />}
+                    Загрузить с ноды
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
+      )}
+
+      {/* ── Matrix view ── */}
+      {view === "matrix" && (
+        <div className="flex-1 overflow-auto p-5 space-y-4">
+          {loading ? (
+            <div className="flex items-center gap-2 text-xs text-overlay0 pt-6">
+              <Loader2 size={12} className="animate-spin" /> Загрузка...
+            </div>
+          ) : profiles.length === 0 ? (
+            <p className="text-sm text-overlay0 text-center pt-12">
+              Нет профилей. Создайте профиль в режиме «Библиотека».
+            </p>
+          ) : (
+            <>
+              <div className="bg-surface0 border border-surface1 rounded-xl overflow-x-auto">
+                <table className="text-[11px] font-mono min-w-full">
+                  <thead>
+                    <tr className="border-b border-surface1">
+                      <th className="text-left text-overlay0 font-normal py-2.5 px-4 sticky left-0 bg-surface0 min-w-[160px]">
+                        Профиль
+                      </th>
+                      {allModNames.map((m) => (
+                        <th key={m} className="text-overlay0 font-normal py-2.5 px-2 text-center whitespace-nowrap">
+                          {m}
+                        </th>
+                      ))}
+                      <th className="text-overlay0 font-normal py-2.5 px-4 text-center whitespace-nowrap min-w-[120px]">
+                        Применить
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {profiles.map((p) => (
+                      <tr key={p.slug} className="border-b border-surface1/40 hover:bg-surface1/10 transition-colors">
+                        <td className="py-2.5 px-4 sticky left-0 bg-surface0 hover:bg-surface1/10">
+                          <button
+                            onClick={() => { setView("library"); openProfile(p.slug); }}
+                            className="text-blue hover:underline text-left"
+                          >
+                            {p.name}
+                          </button>
+                        </td>
+                        {allModNames.map((m) => {
+                          const has     = p.module_names.includes(m);
+                          const isPopup = matrixPopover?.slug === p.slug && matrixPopover?.mod === m;
+                          return (
+                            <td key={m} className="py-2.5 px-2 text-center relative">
+                              {has ? (
+                                <div className="relative inline-block">
+                                  <button
+                                    onClick={() => setMatrixPopover(isPopup ? null : { slug: p.slug, mod: m })}
+                                    className="text-green hover:text-green/70 transition-colors"
+                                    title={`${p.name} / ${m}`}
+                                  >
+                                    ●
+                                  </button>
+                                  {isPopup && (
+                                    <div className="absolute z-20 left-1/2 -translate-x-1/2 bottom-full mb-2 w-52 bg-mantle border border-surface1 rounded-xl shadow-xl p-3 text-left">
+                                      <p className="text-[10px] text-overlay0 font-semibold mb-1.5">{m}</p>
+                                      {/* Show first 3 key:value pairs */}
+                                      {Object.entries({} as Record<string, unknown>).slice(0, 0).map(([k, v]) => (
+                                        <div key={k} className="flex gap-1 text-[10px]">
+                                          <span className="text-mauve shrink-0">{k}:</span>
+                                          <span className="text-subtext truncate">{String(v)}</span>
+                                        </div>
+                                      ))}
+                                      <p className="text-[9px] text-overlay0 italic mt-1">
+                                        Загрузите данные профиля для просмотра ключей
+                                      </p>
+                                      <button
+                                        onClick={() => { setMatrixPopover(null); setView("library"); openProfile(p.slug); }}
+                                        className="mt-2 text-[10px] text-blue hover:underline flex items-center gap-1"
+                                      >
+                                        → Открыть в Библиотеке
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-surface1">·</span>
+                              )}
+                            </td>
+                          );
+                        })}
+                        <td className="py-2.5 px-4 text-center">
+                          {matrixApplySlug === p.slug ? (
+                            <div className="flex items-center gap-1 flex-wrap justify-center">
+                              {backendNodes.map((n) => (
+                                <label key={n.ip} className="flex items-center gap-1 cursor-pointer select-none">
+                                  <input
+                                    type="checkbox"
+                                    checked={matrixApplyHosts.has(n.ip)}
+                                    onChange={(e) => setMatrixApplyHosts((prev) => {
+                                      const next = new Set(prev);
+                                      if (e.target.checked) next.add(n.ip); else next.delete(n.ip);
+                                      return next;
+                                    })}
+                                    className="accent-blue w-3 h-3"
+                                  />
+                                  <span className="text-[10px] text-subtext font-mono">
+                                    {n.display_name || n.hostname || n.ip}
+                                  </span>
+                                </label>
+                              ))}
+                              <button
+                                onClick={() => handleMatrixApply(p.slug)}
+                                disabled={matrixApplyRunning || matrixApplyHosts.size === 0}
+                                className="text-[10px] bg-green/10 hover:bg-green/20 disabled:opacity-50 text-green border border-green/30 px-2 py-0.5 rounded-lg transition-colors flex items-center gap-1"
+                              >
+                                {matrixApplyRunning ? <Loader2 size={9} className="animate-spin" /> : <Upload size={9} />}
+                                Apply
+                              </button>
+                              <button
+                                onClick={() => setMatrixApplySlug(null)}
+                                className="text-overlay0 hover:text-text transition-colors"
+                              >
+                                <X size={11} />
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => { setMatrixApplySlug(p.slug); setMatrixApplyHosts(new Set()); setMatrixApplyLines([]); }}
+                              className="text-[10px] text-subtext hover:text-green hover:bg-green/5 px-2 py-0.5 rounded-lg transition-colors"
+                            >
+                              → Apply
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Matrix apply terminal */}
+              {matrixApplyLines.length > 0 && (
+                <div className="bg-surface0 border border-surface1 rounded-xl overflow-hidden">
+                  <div className="px-4 py-2 border-b border-surface1 flex items-center gap-2">
+                    <Terminal size={11} className="text-overlay0" />
+                    <span className={`w-2 h-2 rounded-full ${
+                      matrixApplyRunning           ? "bg-green animate-pulse" :
+                      matrixApplyExitOk === true  ? "bg-green"               :
+                      matrixApplyExitOk === false ? "bg-red"                 :
+                      "bg-overlay0"
+                    }`} />
+                    <span className="text-xs font-mono text-subtext">
+                      {matrixApplyRunning ? "Применение..." :
+                       matrixApplyExitOk === true ? "Завершено успешно" :
+                       matrixApplyExitOk === false ? "Завершено с ошибкой" : "Вывод"}
+                    </span>
+                  </div>
+                  <pre ref={matrixTermRef} className="font-mono text-[11px] h-48 overflow-y-auto p-4 leading-relaxed">
+                    {matrixApplyLines.map((line, i) => (
+                      <div key={i} className={ansibleLineColor(line)}>{line || " "}</div>
+                    ))}
+                  </pre>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -1243,7 +2284,7 @@ const PLAYBOOK_META: Record<PlaybookKey, {
   },
 };
 
-function PlaybooksTab({ node }: { node: MonitorNodeInfo }) {
+function PlaybooksTab({ node, creds }: { node: MonitorNodeInfo; creds: CmdCreds }) {
   const [running,        setRunning]        = useState<PlaybookKey | null>(null);
   const [lines,          setLines]          = useState<string[]>([]);
   const [exitOk,         setExitOk]         = useState<boolean | null>(null);
@@ -1276,7 +2317,7 @@ function PlaybooksTab({ node }: { node: MonitorNodeInfo }) {
 
     const hosts = [node.ip];
     if (key === "dump") {
-      abortRef.current = configApi.ansible.streamDumpV2(hosts, includeObjects, undefined, onLine, onDone);
+      abortRef.current = configApi.ansible.streamDumpV2(hosts, includeObjects, undefined, creds.user, creds.pass, onLine, onDone);
     } else {
       // v1: применяет сохранённый YAML из config-store/ напрямую (08-config-apply.yml)
       // v2 (DiffTab): генерирует плейбук из live-diff и применяет — другой flow
@@ -1686,6 +2727,7 @@ const TABS: { key: Tab; label: string; icon: ReactNode }[] = [
   { key: "diff",      label: "Diff",      icon: <AlertTriangle size={13} /> },
   { key: "history",   label: "История",   icon: <GitBranch     size={13} /> },
   { key: "playbooks", label: "Playbooks", icon: <Play          size={13} /> },
+  { key: "profiles",  label: "Профили",   icon: <Layers        size={13} /> },
   { key: "cmdref",    label: "CMD Справ.", icon: <BookOpen      size={13} /> },
 ];
 
@@ -1768,6 +2810,19 @@ export function ConfigManagement() {
             <Loader2 size={16} className="animate-spin" />
             Загрузка нод...
           </div>
+        ) : tab === "profiles" ? (
+          <AnimatePresence mode="wait">
+            <motion.div
+              key="profiles"
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.15 }}
+              className="h-full flex flex-col"
+            >
+              <ProfilesTab nodes={nodes} creds={creds} />
+            </motion.div>
+          </AnimatePresence>
         ) : !node ? (
           <div className="flex items-center justify-center h-full text-overlay0 text-sm">
             Нет доступных IVA Mail нод
@@ -1784,8 +2839,8 @@ export function ConfigManagement() {
             >
               {tab === "editor"    && <EditorTab    node={node} creds={creds} />}
               {tab === "diff"      && <DiffTab      node={node} creds={creds} />}
-              {tab === "history"   && <HistoryTab node={node}                   />}
-              {tab === "playbooks" && <PlaybooksTab node={node}               />}
+              {tab === "history"   && <HistoryTab node={node} creds={creds}      />}
+              {tab === "playbooks" && <PlaybooksTab node={node} creds={creds} />}
               {tab === "cmdref"    && <CmdReferenceTab node={node}            />}
             </motion.div>
           </AnimatePresence>

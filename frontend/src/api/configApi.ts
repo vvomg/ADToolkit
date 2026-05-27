@@ -45,6 +45,19 @@ export interface GitCommit {
   message: string;
 }
 
+export interface ProfileMeta {
+  slug:         string;
+  name:         string;
+  created_at:   string;
+  updated_at:   string;
+  notes:        string;
+  module_names: string[];   // just names, no content
+}
+
+export interface ProfileFull extends ProfileMeta {
+  modules: Record<string, Record<string, unknown>>;
+}
+
 // ── Internal helpers ───────────────────────────────────────────────────────────
 
 async function apiFetch<T>(url: string, opts?: RequestInit): Promise<T> {
@@ -325,6 +338,79 @@ export const configApi = {
     },
   },
 
+  // ── Profiles ──────────────────────────────────────────────────────────────
+
+  profiles: {
+    async list(): Promise<ProfileMeta[]> {
+      const r = await apiFetch<{ profiles: ProfileMeta[] }>(`${BASE}/profiles`);
+      return r.profiles;
+    },
+    async get(slug: string): Promise<ProfileFull> {
+      const r = await apiFetch<{ profile: ProfileFull }>(`${BASE}/profiles/${slug}`);
+      return r.profile;
+    },
+    async create(name: string, notes = ""): Promise<ProfileFull> {
+      const r = await apiFetch<{ profile: ProfileFull }>(`${BASE}/profiles`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, notes }),
+      });
+      return r.profile;
+    },
+    async update(slug: string, patch: { name?: string; notes?: string }): Promise<ProfileFull> {
+      const r = await apiFetch<{ profile: ProfileFull }>(`${BASE}/profiles/${slug}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      return r.profile;
+    },
+    async remove(slug: string): Promise<void> {
+      await apiFetch(`${BASE}/profiles/${slug}`, { method: "DELETE" });
+    },
+    async upsertModule(slug: string, module: string, config: Record<string, unknown>): Promise<ProfileFull> {
+      const r = await apiFetch<{ profile: ProfileFull }>(`${BASE}/profiles/${slug}/modules/${module}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ config }),
+      });
+      return r.profile;
+    },
+    async removeModule(slug: string, module: string): Promise<ProfileFull> {
+      const r = await apiFetch<{ profile: ProfileFull }>(`${BASE}/profiles/${slug}/modules/${module}`, {
+        method: "DELETE",
+      });
+      return r.profile;
+    },
+    async pull(slug: string, ip: string, modules: string[], cmdUser: string, cmdPass: string, port = 106): Promise<ProfileFull> {
+      const r = await apiFetch<{ profile: ProfileFull }>(`${BASE}/profiles/${slug}/pull`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ip, modules, cmd_user: cmdUser, cmd_password: cmdPass, port }),
+      });
+      return r.profile;
+    },
+    async duplicate(slug: string, name: string): Promise<ProfileFull> {
+      const r = await apiFetch<{ profile: ProfileFull }>(`${BASE}/profiles/${slug}/duplicate`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      return r.profile;
+    },
+    streamApply(
+      slug: string,
+      hosts: string[],
+      modules: string[] | undefined,
+      cmdUser: string,
+      cmdPass: string,
+      onLine: (line: string) => void,
+      onDone: (ok: boolean) => void,
+    ): AbortController {
+      return streamPlaybook(
+        `/profiles/${slug}/apply/stream`,
+        { hosts, modules, cmd_user: cmdUser, cmd_password: cmdPass },
+        onLine,
+        onDone,
+      );
+    },
+  },
+
   // ── Ansible SSE streaming ──────────────────────────────────────────────────
 
   ansible: {
@@ -348,12 +434,15 @@ export const configApi = {
       hosts: string[],
       includeObjects: boolean,
       configTagName: string | undefined,
+      cmdUser: string,
+      cmdPass: string,
       onLine: (line: string) => void,
       onDone: (ok: boolean) => void,
     ): AbortController {
       return streamPlaybook(
         "/ansible/dump/stream/v2",
-        { hosts, include_objects: includeObjects, config_tag_name: configTagName },
+        { hosts, include_objects: includeObjects, config_tag_name: configTagName,
+          cmd_user: cmdUser, cmd_password: cmdPass },
         onLine,
         onDone,
       );
@@ -363,12 +452,15 @@ export const configApi = {
       hosts: string[],
       mode: "full" | "diff",
       includeObjects: boolean,
+      cmdUser: string,
+      cmdPass: string,
       onLine: (line: string) => void,
       onDone: (ok: boolean) => void,
     ): AbortController {
       return streamPlaybook(
         "/ansible/apply/stream/v2",
-        { hosts, mode, include_objects: includeObjects },
+        { hosts, mode, include_objects: includeObjects,
+          cmd_user: cmdUser, cmd_password: cmdPass },
         onLine,
         onDone,
       );
@@ -378,12 +470,14 @@ export const configApi = {
       hosts: string[],
       tag: string,
       mode: "yaml_only" | "yaml_and_apply",
+      cmdUser: string,
+      cmdPass: string,
       onLine: (line: string) => void,
       onDone: (ok: boolean) => void,
     ): AbortController {
       return streamPlaybook(
         "/ansible/rollback/stream",
-        { hosts, tag, mode },
+        { hosts, tag, mode, cmd_user: cmdUser, cmd_password: cmdPass },
         onLine,
         onDone,
       );

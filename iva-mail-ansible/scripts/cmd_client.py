@@ -366,12 +366,12 @@ class CMDSession:
         """
         Отправить команду PING.
 
-        :returns: True если сервер ответил 200
+        :returns: True если сервер ответил 2xx (IVA Mail возвращает 204 Pong)
         :raises CMDError: при ошибке
         """
         code, lines = await self.send_command("PING")
         logger.debug("PING response: %s %s", code, lines)
-        return code == 200
+        return 200 <= code < 300
 
     async def cluster_config(
         self,

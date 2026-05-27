@@ -97,20 +97,28 @@ async def stream_playbook(
     limit: str | None = None,
     inventory: str | None = None,
     vault_password_file: str | None = None,
+    env: dict[str, str] | None = None,
     timeout: int = 3600,
 ) -> AsyncGenerator[str, None]:
     """
     Run an ansible-playbook and yield output lines as they arrive.
     Useful for SSE streaming of playbook progress.
+
+    ``env`` — дополнительные переменные окружения (поверх os.environ),
+    например IVAMAIL_CMD_USER / IVAMAIL_CMD_PASSWORD для плейбуков.
     """
+    import os
     cmd = _build_cmd(playbook, extra_vars, tags, limit, inventory, vault_password_file)
     logger.info("Streaming playbook: %s", " ".join(cmd))
+
+    proc_env = {**os.environ, **(env or {})}
 
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         cwd=str(_ansible_dir()),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,  # merge stderr into stdout for streaming
+        env=proc_env,
     )
 
     assert proc.stdout is not None

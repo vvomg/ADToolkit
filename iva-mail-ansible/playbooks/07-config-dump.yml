@@ -108,11 +108,23 @@
       tags:
         - config_dump
 
-    - name: "Конфиг-дамп IVA Mail через CMD ({{ inventory_hostname }})"
+    # ── Предварительная проверка доступности CMD-порта ───────────────────────
+    - name: "Проверить доступность CMD-порта {{ ansible_host }}:{{ cmd_port | default(106) }}"
+      ansible.builtin.wait_for:
+        host: "{{ ansible_host }}"
+        port: "{{ cmd_port | default(106) }}"
+        timeout: 10
+        msg: "CMD-порт {{ ansible_host }}:{{ cmd_port | default(106) }} недоступен с контроллера"
+      delegate_to: localhost
+      tags:
+        - config_dump
+
+    # ── Основной дамп ─────────────────────────────────────────────────────────
+    - name: "Конфиг-дамп IVA Mail через CMD ({{ ansible_host }})"
       ansible.builtin.script:
         cmd: >-
-          scripts/cmd_client.py
-          --host {{ inventory_hostname }}
+          ../scripts/cmd_client.py
+          --host {{ ansible_host }}
           --port {{ cmd_port | default(106) }}
           --action config-dump
           --output-dir /tmp/ivamail-dump-{{ inventory_hostname }}
