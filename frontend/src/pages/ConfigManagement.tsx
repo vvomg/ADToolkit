@@ -957,6 +957,8 @@ function DiffTab({ node, creds }: { node: MonitorNodeInfo; creds: CmdCreds }) {
   const [compared, setCompared] = useState(false);
   const [error,    setError]    = useState<string | null>(null);
   const [isIdentical, setIsIdentical] = useState(false);
+  const [storedConfig, setStoredConfig] = useState<ConfigData | null>(null);
+  const [liveConfig,   setLiveConfig]   = useState<ConfigData | null>(null);
   const [availableModules,  setAvailableModules]  = useState<string[]>(FALLBACK_MODULES);
   const [modulesSource,     setModulesSource]      = useState<"live" | "stored" | "fallback">("fallback");
 
@@ -1011,10 +1013,18 @@ function DiffTab({ node, creds }: { node: MonitorNodeInfo; creds: CmdCreds }) {
     setLoading(true);
     setError(null);
     setCompared(false);
+    setStoredConfig(null);
+    setLiveConfig(null);
     try {
-      const result = await configApi.diff.module(node.ip, module, creds);
+      const [result, stored, live] = await Promise.all([
+        configApi.diff.module(node.ip, module, creds),
+        configApi.stored.readModule(node.ip, module).catch(() => null),
+        configApi.live.readModule(node.ip, module, creds).catch(() => null),
+      ]);
       setEntries(result);
       setIsIdentical(result.length === 0);
+      setStoredConfig(stored);
+      setLiveConfig(live);
       setCompared(true);
     } catch (e) {
       setError(String(e));
@@ -1109,37 +1119,66 @@ function DiffTab({ node, creds }: { node: MonitorNodeInfo; creds: CmdCreds }) {
         </div>
       )}
 
-      {compared && entries.length > 0 && (
-        <div className="bg-surface0 border border-surface1 rounded-xl overflow-hidden">
-          <div className="grid grid-cols-3 text-[10px] text-overlay0 font-semibold uppercase tracking-wider px-4 py-2 border-b border-surface1 bg-surface1/30">
-            <span>Ключ</span>
-            <span>Сохранённое</span>
-            <span>Live ({node.ip})</span>
-          </div>
-          <div className="divide-y divide-surface1/30">
-            {entries.map((e) => {
-              const meta = diffKindMeta[e.kind];
-              return (
-                <div key={e.key} className={`grid grid-cols-3 gap-2 px-4 py-2 text-xs font-mono ${meta.bg}`}>
-                  <div className={`flex items-center gap-1.5 ${meta.cls}`}>
-                    {meta.icon}
-                    <span className="text-text">{e.key}</span>
+      {compared && (storedConfig !== null || liveConfig !== null) && (() => {
+        // Собираем все ключи обоих конфигов, сортируем: сначала изменённые, потом остальные
+        const diffKeys = new Set(entries.map((e) => e.key));
+        const allKeys = Array.from(
+          new Set([
+            ...Object.keys(storedConfig ?? {}).filter((k) => !k.startsWith("_")),
+            ...Object.keys(liveConfig   ?? {}).filter((k) => !k.startsWith("_")),
+          ])
+        ).sort((a, b) => {
+          const aDiff = diffKeys.has(a) ? 0 : 1;
+          const bDiff = diffKeys.has(b) ? 0 : 1;
+          return aDiff - bDiff || a.localeCompare(b);
+        });
+
+        const diffByKey = Object.fromEntries(entries.map((e) => [e.key, e]));
+
+        return (
+          <div className="bg-surface0 border border-surface1 rounded-xl overflow-hidden">
+            <div className="grid grid-cols-3 text-[10px] text-overlay0 font-semibold uppercase tracking-wider px-4 py-2 border-b border-surface1 bg-surface1/30 sticky top-0">
+              <span>Ключ</span>
+              <span>Сохранённое</span>
+              <span>Live ({node.ip})</span>
+            </div>
+            <div className="divide-y divide-surface1/30 max-h-[60vh] overflow-y-auto">
+              {allKeys.map((key) => {
+                const diff = diffByKey[key];
+                const meta = diff ? diffKindMeta[diff.kind] : null;
+                const storedVal = storedConfig?.[key];
+                const liveVal   = liveConfig?.[key];
+                return (
+                  <div key={key} className={`grid grid-cols-3 gap-2 px-4 py-2 text-xs font-mono ${meta?.bg ?? ""}`}>
+                    {/* Ключ */}
+                    <div className={`flex items-center gap-1.5 ${meta?.cls ?? "text-subtext"}`}>
+                      {meta ? meta.icon : <span className="w-2.5 shrink-0" />}
+                      <span className="text-text break-all">{key}</span>
+                    </div>
+                    {/* Сохранённое */}
+                    <div className={diff?.kind === "removed" ? "text-red line-through opacity-60" : "text-subtext"}>
+                      {storedVal !== undefined
+                        ? <ConfigValue val={storedVal} />
+                        : <span className="text-overlay0 italic">—</span>
+                      }
+                    </div>
+                    {/* Live */}
+                    <div className={
+                      diff?.kind === "added"   ? "text-green"  :
+                      diff?.kind === "changed" ? "text-yellow" : "text-subtext"
+                    }>
+                      {liveVal !== undefined
+                        ? <ConfigValue val={liveVal} />
+                        : <span className="text-overlay0 italic">—</span>
+                      }
+                    </div>
                   </div>
-                  <span className={e.kind === "removed" ? "text-red line-through opacity-60" : "text-subtext"}>
-                    {e.stored ?? <span className="text-overlay0 italic">—</span>}
-                  </span>
-                  <span className={
-                    e.kind === "added"   ? "text-green"  :
-                    e.kind === "changed" ? "text-yellow" : "text-subtext"
-                  }>
-                    {e.live ?? <span className="text-overlay0 italic">—</span>}
-                  </span>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {!compared && !loading && !error && applyLines.length === 0 && (
         <p className="text-sm text-overlay0 text-center pt-12">
