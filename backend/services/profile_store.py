@@ -44,7 +44,7 @@ class ProfileMeta(BaseModel):
     created_at: str
     updated_at: str
     notes: str
-    modules: list[str]
+    module_names: list[str]
 
 
 class ProfileFull(BaseModel):
@@ -54,6 +54,7 @@ class ProfileFull(BaseModel):
     updated_at: str
     notes: str
     modules: dict[str, Any]
+    module_names: list[str] = []
 
 
 # ---------------------------------------------------------------------------
@@ -117,13 +118,15 @@ def _save_raw(path: Path, data: dict[str, Any]) -> None:
 
 
 def _raw_to_full(raw: dict[str, Any]) -> ProfileFull:
+    modules = raw.get("modules") or {}
     return ProfileFull(
         name=raw.get("name", ""),
         slug=raw.get("slug", ""),
         created_at=raw.get("created_at", ""),
         updated_at=raw.get("updated_at", ""),
         notes=raw.get("notes", ""),
-        modules=raw.get("modules") or {},
+        modules=modules,
+        module_names=list(modules.keys()),
     )
 
 
@@ -134,7 +137,7 @@ def _raw_to_meta(raw: dict[str, Any]) -> ProfileMeta:
         created_at=raw.get("created_at", ""),
         updated_at=raw.get("updated_at", ""),
         notes=raw.get("notes", ""),
-        modules=list((raw.get("modules") or {}).keys()),
+        module_names=list((raw.get("modules") or {}).keys()),
     )
 
 
