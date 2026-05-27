@@ -723,8 +723,12 @@ function EditorTab({ node, creds }: { node: MonitorNodeInfo; creds: CmdCreds }) 
 
 // ── Inline CMD reference for a specific module ───────────────────────────────
 
-// CMD-команды, которые актуальны при работе с конфигом модуля
-const MODULE_CMD_KEYWORDS = ["module", "mail"];
+// Точный список команд для работы с конфигом модуля (не по ключевому слову)
+const MODULE_CONFIG_CMDS = new Set([
+  "modulereadconfig", "moduleupdateconfig",
+  "modulegetsetting", "modulesetsetting", "moduledelsetting",
+  "moduleslist", "mailmoduleslist", "modulesetloglevel",
+]);
 // Русскоязычные секции для domain и object
 const DOMAIN_SECTION  = "Работа с доменами";
 const OBJECT_SECTION  = "Работа с объектами в доменах";
@@ -761,28 +765,36 @@ function CmdModuleRef({
       .catch(() => {});
   }, [nodeId]);
 
-  const { filtered, label } = useMemo(() => {
+  // Подставляет реальное имя модуля/домена в синтаксис команды
+  const substituteName = useCallback((syntax: string, name: string) => {
+    return syntax
+      .replace(/"module_name"/gi, `"${name}"`)
+      .replace(/"string"\|domUID/gi, `"${name}"`);
+  }, []);
+
+  const { filtered, label, subName } = useMemo(() => {
     if (selection.kind === "module") {
       return {
         label: `Модуль: ${selection.name}`,
-        filtered: docs.filter((d) =>
-          MODULE_CMD_KEYWORDS.some((kw) => d.name.toLowerCase().includes(kw)),
-        ),
+        subName: selection.name,
+        filtered: docs.filter((d) => MODULE_CONFIG_CMDS.has(d.name.toLowerCase())),
       };
     }
     if (selection.kind === "domain") {
       return {
         label: `Домен: ${selection.name}`,
+        subName: selection.name,
         filtered: docs.filter((d) => d.section === DOMAIN_SECTION),
       };
     }
     if (selection.kind === "object") {
       return {
         label: `Объект: ${selection.uid}`,
+        subName: selection.uid,
         filtered: docs.filter((d) => d.section === OBJECT_SECTION),
       };
     }
-    return { label: "", filtered: [] };
+    return { label: "", subName: "", filtered: [] };
   }, [docs, selection]);
 
   if (filtered.length === 0) return null;
@@ -828,7 +840,7 @@ function CmdModuleRef({
                     {cmd.name}
                   </span>
                   <span className="text-[10px] font-mono text-overlay0 truncate flex-1 text-left">
-                    {cmd.syntax}
+                    {substituteName(cmd.syntax, subName)}
                   </span>
                   {isExp
                     ? <ChevronUp   size={10} className="shrink-0 text-overlay0" />
@@ -838,7 +850,7 @@ function CmdModuleRef({
                 {isExp && (
                   <div className="px-4 pb-3 pt-1 bg-surface0/30 space-y-2">
                     <code className="block font-mono text-[11px] text-peach bg-surface1 px-3 py-2 rounded-lg whitespace-pre-wrap leading-relaxed">
-                      {cmd.syntax}
+                      {substituteName(cmd.syntax, subName)}
                     </code>
                     {cmd.description ? (
                       <p className="text-xs text-subtext leading-relaxed whitespace-pre-wrap">
