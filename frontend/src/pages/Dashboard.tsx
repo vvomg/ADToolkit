@@ -922,17 +922,13 @@ function ClusterBlock({
         </div>
       </div>
 
-      {/* Cluster body — animated */}
-      <AnimatePresence initial={false}>
-      {!collapsed && (
-        <motion.div
-          key="body"
-          initial={{ height: 0, opacity: 0 }}
-          animate={{ height: "auto", opacity: 1 }}
-          exit={{ height: 0, opacity: 0 }}
-          transition={{ duration: 0.18, ease: "easeInOut" }}
-          className="overflow-hidden"
-        >
+      {/* Cluster body — animated height, always in DOM */}
+      <motion.div
+        animate={collapsed ? { height: 0, opacity: 0 } : { height: "auto", opacity: 1 }}
+        initial={false}
+        transition={{ duration: 0.18, ease: "easeInOut" }}
+        className="overflow-hidden"
+      >
         <div className="p-4 space-y-5 bg-base/20">
           {nodes.length === 0 && (
             <p className="text-[11px] text-overlay0 text-center py-4">
@@ -1004,9 +1000,7 @@ function ClusterBlock({
             />
           )}
         </div>
-        </motion.div>
-      )}
-      </AnimatePresence>
+      </motion.div>
     </div>
   );
 }
