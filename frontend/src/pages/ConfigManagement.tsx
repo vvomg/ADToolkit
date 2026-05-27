@@ -704,6 +704,11 @@ function EditorTab({ node, creds }: { node: MonitorNodeInfo; creds: CmdCreds }) 
                   Конфиг не сохранён в config-store. Нажмите «Сохранить» чтобы снять дамп с ноды.
                 </p>
               )}
+
+              {/* Inline CMD reference for selected module */}
+              {!loadingStored && selection?.kind === "module" && (
+                <CmdModuleRef moduleName={selection.name} nodeId={node.id} />
+              )}
             </div>
           </>
         ) : (
@@ -712,6 +717,114 @@ function EditorTab({ node, creds }: { node: MonitorNodeInfo; creds: CmdCreds }) 
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── Inline CMD reference for a specific module ───────────────────────────────
+
+function CmdModuleRef({ moduleName, nodeId }: { moduleName: string; nodeId: number }) {
+  const [docs,         setDocs]         = useState<CMDMethodDoc[]>([]);
+  const [nodeCommands, setNodeCommands] = useState<Map<string, boolean>>(new Map());
+  const [open,         setOpen]         = useState(true);
+  const [expandedCmd,  setExpandedCmd]  = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/monitor/cmd-reference")
+      .then((r) => r.ok ? r.json() as Promise<CMDMethodDoc[]> : [])
+      .then(setDocs)
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetch(`/api/monitor/nodes/${nodeId}/commands`)
+      .then((r) => r.status === 204 ? null : r.json() as Promise<{ commands: EnrichedCommand[] }>)
+      .then((data) => {
+        if (data?.commands) {
+          const map = new Map<string, boolean>();
+          data.commands.forEach((c) => map.set(c.name.toLowerCase(), c.available));
+          setNodeCommands(map);
+        }
+      })
+      .catch(() => {});
+  }, [nodeId]);
+
+  const filtered = useMemo(() => {
+    const q = moduleName.toLowerCase();
+    return docs.filter(
+      (d) => d.section?.toLowerCase() === q || d.name.toLowerCase().includes(q),
+    );
+  }, [docs, moduleName]);
+
+  if (filtered.length === 0) return null;
+
+  return (
+    <div className="border border-surface1 rounded-xl overflow-hidden mt-1">
+      {/* Header */}
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center gap-2 px-4 py-2.5 bg-surface0/60 hover:bg-surface0 transition-colors"
+      >
+        {open ? <ChevronDown size={11} className="text-overlay0" /> : <ChevronRight size={11} className="text-overlay0" />}
+        <BookOpen size={11} className="text-overlay0" />
+        <span className="text-xs text-subtext">CMD Справка</span>
+        <span className="text-[10px] font-mono text-overlay0">· {moduleName}</span>
+        <span className="ml-auto text-[10px] font-mono bg-surface1 text-overlay0 px-1.5 py-0.5 rounded">
+          {filtered.length}
+        </span>
+      </button>
+
+      {/* Command list */}
+      {open && (
+        <div className="divide-y divide-surface1/40 max-h-96 overflow-y-auto">
+          {filtered.map((cmd) => {
+            const isExp  = expandedCmd === cmd.name;
+            const avail  = nodeCommands.size > 0
+              ? nodeCommands.get(cmd.name.toLowerCase()) ?? null
+              : null;
+            return (
+              <div key={cmd.name}>
+                <button
+                  onClick={() => setExpandedCmd(isExp ? null : cmd.name)}
+                  className={`w-full text-left px-4 py-2 flex items-center gap-2 transition-colors ${
+                    isExp ? "bg-blue/5" : "hover:bg-surface1/20"
+                  }`}
+                >
+                  {/* availability dot */}
+                  {avail === true  && <span className="w-1.5 h-1.5 rounded-full bg-green/70 shrink-0" />}
+                  {avail === false && <span className="w-1.5 h-1.5 rounded-full bg-overlay0/30 shrink-0" />}
+                  {avail === null  && <span className="w-1.5 h-1.5 shrink-0" />}
+
+                  <span className={`text-xs font-mono shrink-0 ${isExp ? "text-blue" : "text-text"}`}>
+                    {cmd.name}
+                  </span>
+                  <span className="text-[10px] font-mono text-overlay0 truncate flex-1 text-left">
+                    {cmd.syntax}
+                  </span>
+                  {isExp
+                    ? <ChevronUp   size={10} className="shrink-0 text-overlay0" />
+                    : <ChevronDown size={10} className="shrink-0 text-overlay0" />}
+                </button>
+
+                {isExp && (
+                  <div className="px-4 pb-3 pt-1 bg-surface0/30 space-y-2">
+                    <code className="block font-mono text-[11px] text-peach bg-surface1 px-3 py-2 rounded-lg whitespace-pre-wrap leading-relaxed">
+                      {cmd.syntax}
+                    </code>
+                    {cmd.description ? (
+                      <p className="text-xs text-subtext leading-relaxed whitespace-pre-wrap">
+                        {cmd.description}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-overlay0 italic">Описание отсутствует</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
