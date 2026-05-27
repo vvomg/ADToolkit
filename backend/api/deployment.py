@@ -23,6 +23,7 @@ from ..models.db_models import DeploymentRun, DeploymentLog, HealthCheckResult, 
 from ..models.license_models import ValidationResult
 from ..core.validator import validator
 from ..core.orchestrator import orchestrator
+from ..core.reporter import Reporter
 
 logger = logging.getLogger(__name__)
 
@@ -367,5 +368,69 @@ async def get_deployment_report(deployment_id: str) -> HTMLResponse:
                 )
             )
         return HTMLResponse(content=run.report_html)
+    finally:
+        session.close()
+
+
+@router.post(
+    "/{deployment_id}/report/regenerate",
+    summary="Перегенерировать HTML-отчёт из текущего состояния БД",
+)
+async def regenerate_report(deployment_id: str) -> dict:
+    """
+    Пересчитывает HTML-отчёт на основе текущих данных в БД (статус, логи, health checks).
+    Полезно если отчёт был сохранён с неверным статусом (например до перехода в SUCCESS).
+    """
+    session = _get_session()
+    try:
+        run = session.get(DeploymentRun, deployment_id)
+        if not run:
+            raise HTTPException(status_code=404, detail=f"Deployment {deployment_id} не найден")
+
+        all_logs = (
+            session.query(DeploymentLog)
+            .filter(DeploymentLog.deployment_id == run.id)
+            .order_by(DeploymentLog.created_at)
+            .all()
+        )
+        health_results = (
+            session.query(HealthCheckResult)
+            .filter(HealthCheckResult.deployment_id == run.id)
+            .all()
+        )
+
+        # Строим health_summary в формате HealthChecker.build_summary()
+        passed = sum(1 for h in health_results if h.success)
+        total  = len(health_results)
+
+        by_type: dict = {}
+        for h in health_results:
+            if h.check_type not in by_type:
+                by_type[h.check_type] = {"passed": 0, "failed": 0, "servers": []}
+            entry = by_type[h.check_type]
+            if h.success:
+                entry["passed"] += 1
+            else:
+                entry["failed"] += 1
+            entry["servers"].append({
+                "ip": h.server_ip,
+                "hostname": "",
+                "ok": h.success,
+                "error": h.error_message,
+            })
+
+        health_summary = {
+            "total": total,
+            "passed": passed,
+            "failed": total - passed,
+            "all_ok": passed == total,
+            "by_type": by_type,
+        }
+
+        reporter = Reporter()
+        html = reporter.generate(run, all_logs, health_results, health_summary)
+        reporter.save_to_run(session, run, html)
+
+        return {"ok": True, "deployment_id": deployment_id, "html_length": len(html)}
     finally:
         session.close()

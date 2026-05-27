@@ -242,11 +242,16 @@ class DeploymentOrchestrator:
                                 server_ip=srv["ip"],
                             )
 
+            # ── SUCCESS (до генерации отчёта, чтобы статус и время были верными) ──
+            run.completed_at = datetime.utcnow()
+            await self._transition(session, run, DeploymentStatus.SUCCESS)
+            await self._log(session, run.id, "success",
+                            "Развертывание кластера IVA Mail завершено успешно ✓")
+
             # ── REPORTING ──────────────────────────────────────────
-            await self._transition(session, run, DeploymentStatus.REPORTING)
             await self._log(session, run.id, "reporting", "Генерация HTML-отчёта...")
 
-            # Читаем все логи для отчёта
+            # Читаем все логи для отчёта (включая только что записанный "success")
             all_logs = (
                 session.query(DeploymentLog)
                 .filter(DeploymentLog.deployment_id == run.id)
@@ -257,12 +262,6 @@ class DeploymentOrchestrator:
             reporter.save_to_run(session, run, html)
             await self._log(session, run.id, "reporting",
                             f"Отчёт сохранён ({len(html)} символов)")
-
-            # ── SUCCESS ────────────────────────────────────────────
-            run.completed_at = datetime.utcnow()
-            await self._transition(session, run, DeploymentStatus.SUCCESS)
-            await self._log(session, run.id, "success",
-                            "Развертывание кластера IVA Mail завершено успешно ✓")
 
             logger.info(f"[Orch] ✓ Deployment {run.id} завершён успешно")
 
