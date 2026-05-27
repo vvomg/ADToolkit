@@ -425,6 +425,50 @@ function TreePanel({
 
 // ── Config table ──────────────────────────────────────────────────────────────
 
+/** Рекурсивно рендерит любое значение конфига (примитив / массив / объект). */
+function ConfigValue({ val, depth = 0 }: { val: unknown; depth?: number }) {
+  if (val === null || val === undefined)
+    return <span className="text-overlay0 italic">null</span>;
+
+  if (typeof val === "boolean")
+    return <span className={val ? "text-green" : "text-red"}>{String(val)}</span>;
+
+  if (typeof val !== "object")
+    return <>{String(val)}</>;
+
+  if (Array.isArray(val)) {
+    if (val.length === 0) return <span className="text-overlay0 italic">[]</span>;
+    // Массив примитивов — в одну строку
+    if (val.every((i) => i === null || typeof i !== "object"))
+      return <>{(val as unknown[]).map(String).join(", ")}</>;
+    // Массив объектов — каждый элемент отдельным блоком
+    return (
+      <div className="flex flex-col gap-1 mt-0.5">
+        {(val as unknown[]).map((item, idx) => (
+          <div key={idx} className="pl-2 border-l-2 border-surface1">
+            <ConfigValue val={item} depth={depth + 1} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // Обычный объект — рендер вложенных ключей
+  const pairs = Object.entries(val as Record<string, unknown>);
+  return (
+    <div className={`flex flex-col gap-0.5 mt-0.5 ${depth === 0 ? "pl-2 border-l-2 border-surface1" : ""}`}>
+      {pairs.map(([k, v]) => (
+        <div key={k} className="flex gap-1.5 items-start text-[11px]">
+          <span className="text-mauve/80 shrink-0 font-semibold">{k}:</span>
+          <span className="text-subtext break-all">
+            <ConfigValue val={v} depth={depth + 1} />
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ConfigTable({
   config, editedKeys, onEdit,
 }: {
@@ -447,7 +491,14 @@ function ConfigTable({
       <tbody>
         {entries.map(([key, val]) => {
           const isEdited = editedKeys?.has(key);
-          const displayVal = Array.isArray(val) ? (val as string[]).join(", ") : String(val ?? "");
+          // Объекты и сложные массивы — только read-only через ConfigValue
+          const isComplex = val !== null && val !== undefined && typeof val === "object" &&
+            (!Array.isArray(val) || (val as unknown[]).some((i) => typeof i === "object" && i !== null));
+          const displayVal = isComplex
+            ? ""
+            : Array.isArray(val)
+              ? (val as unknown[]).map(String).join(", ")
+              : String(val ?? "");
           return (
             <tr
               key={key}
@@ -455,9 +506,11 @@ function ConfigTable({
                 isEdited ? "bg-yellow/5" : ""
               }`}
             >
-              <td className="py-1.5 pr-4 text-mauve">{key}</td>
+              <td className="py-1.5 pr-4 text-mauve align-top">{key}</td>
               <td className="py-1.5">
-                {onEdit ? (
+                {isComplex ? (
+                  <ConfigValue val={val} />
+                ) : onEdit ? (
                   <input
                     value={displayVal}
                     onChange={(e) => onEdit(key, e.target.value)}
