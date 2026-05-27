@@ -1724,7 +1724,11 @@ function ProfilesTab({ nodes, creds }: { nodes: MonitorNodeInfo[]; creds: CmdCre
 
   // ── Derived ───────────────────────────────────────────────────────────────
 
-  const backendNodes = nodes.filter((n) => n.node_type === "ivamail_backend");
+  const backendNodes  = nodes.filter((n) => n.node_type === "ivamail_backend");
+  const frontendNodes = nodes.filter((n) => n.node_type === "ivamail_frontend");
+  const ivamailNodes  = nodes.filter(
+    (n) => n.node_type === "ivamail_backend" || n.node_type === "ivamail_frontend",
+  );
   const filteredProfiles = profiles.filter((p) =>
     !search.trim() || p.name.toLowerCase().includes(search.toLowerCase()),
   );
@@ -2149,29 +2153,52 @@ function ProfilesTab({ nodes, creds }: { nodes: MonitorNodeInfo[]; creds: CmdCre
                     <p className="text-[10px] font-semibold text-overlay0 uppercase tracking-widest">
                       Применить профиль
                     </p>
-                    {backendNodes.length === 0 ? (
-                      <p className="text-xs text-overlay0 italic">Нет backend-нод</p>
+                    {ivamailNodes.length === 0 ? (
+                      <p className="text-xs text-overlay0 italic">Нет IVA Mail нод в реестре</p>
                     ) : (
-                      <div className="flex flex-wrap gap-2">
-                        {backendNodes.map((n) => {
-                          const label    = n.display_name || n.hostname || n.ip;
-                          const checked  = applyHosts.has(n.ip);
-                          return (
-                            <label key={n.ip} className="flex items-center gap-1.5 cursor-pointer select-none">
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={(e) => setApplyHosts((prev) => {
-                                  const next = new Set(prev);
-                                  if (e.target.checked) next.add(n.ip); else next.delete(n.ip);
-                                  return next;
+                      <div className="space-y-2">
+                        {[
+                          { label: "Backend",  list: backendNodes },
+                          { label: "Frontend", list: frontendNodes },
+                        ].map(({ label, list }) =>
+                          list.length > 0 && (
+                            <div key={label} className="space-y-1">
+                              <p className="text-[9px] text-overlay0/60 uppercase tracking-wider">{label}</p>
+                              <div className="flex flex-wrap gap-2">
+                                {list.map((n) => {
+                                  const nodeLabel = n.display_name || n.hostname || n.ip;
+                                  const checked   = applyHosts.has(n.ip);
+                                  return (
+                                    <label key={n.ip} className="flex items-center gap-1.5 cursor-pointer select-none">
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        onChange={(e) => setApplyHosts((prev) => {
+                                          const next = new Set(prev);
+                                          if (e.target.checked) next.add(n.ip); else next.delete(n.ip);
+                                          return next;
+                                        })}
+                                        className="accent-blue w-3.5 h-3.5"
+                                      />
+                                      <span className="text-xs text-subtext font-mono">{nodeLabel}</span>
+                                    </label>
+                                  );
                                 })}
-                                className="accent-blue w-3.5 h-3.5"
-                              />
-                              <span className="text-xs text-subtext font-mono">{label}</span>
-                            </label>
-                          );
-                        })}
+                              </div>
+                            </div>
+                          )
+                        )}
+                        <div className="flex items-center gap-2 pt-0.5">
+                          <button
+                            onClick={() => setApplyHosts(new Set(ivamailNodes.map((n) => n.ip)))}
+                            className="text-[10px] text-overlay0 hover:text-text transition-colors"
+                          >все</button>
+                          <span className="text-overlay0/40 text-[10px]">·</span>
+                          <button
+                            onClick={() => setApplyHosts(new Set())}
+                            className="text-[10px] text-overlay0 hover:text-text transition-colors"
+                          >нет</button>
+                        </div>
                       </div>
                     )}
                     <button
@@ -2415,7 +2442,30 @@ function ProfilesTab({ nodes, creds }: { nodes: MonitorNodeInfo[]; creds: CmdCre
                         <td className="py-2.5 px-4 text-center">
                           {matrixApplySlug === p.slug ? (
                             <div className="flex items-center gap-1 flex-wrap justify-center">
+                              {backendNodes.length > 0 && (
+                                <span className="text-[9px] text-overlay0 font-semibold mr-0.5">BE:</span>
+                              )}
                               {backendNodes.map((n) => (
+                                <label key={n.ip} className="flex items-center gap-1 cursor-pointer select-none">
+                                  <input
+                                    type="checkbox"
+                                    checked={matrixApplyHosts.has(n.ip)}
+                                    onChange={(e) => setMatrixApplyHosts((prev) => {
+                                      const next = new Set(prev);
+                                      if (e.target.checked) next.add(n.ip); else next.delete(n.ip);
+                                      return next;
+                                    })}
+                                    className="accent-blue w-3 h-3"
+                                  />
+                                  <span className="text-[10px] text-subtext font-mono">
+                                    {n.display_name || n.hostname || n.ip}
+                                  </span>
+                                </label>
+                              ))}
+                              {frontendNodes.length > 0 && (
+                                <span className="text-[9px] text-overlay0 font-semibold ml-1 mr-0.5">FE:</span>
+                              )}
+                              {frontendNodes.map((n) => (
                                 <label key={n.ip} className="flex items-center gap-1 cursor-pointer select-none">
                                   <input
                                     type="checkbox"
