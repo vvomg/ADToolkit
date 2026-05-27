@@ -2411,7 +2411,7 @@ function ProfilesTab({ nodes, creds }: { nodes: MonitorNodeInfo[]; creds: CmdCre
 
       {/* ── Matrix view ── */}
       {view === "matrix" && (
-        <div className="flex-1 overflow-auto p-5 space-y-4">
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden p-5 gap-4">
           {loading ? (
             <div className="flex items-center gap-2 text-xs text-overlay0 pt-6">
               <Loader2 size={12} className="animate-spin" /> Загрузка...
@@ -2422,11 +2422,12 @@ function ProfilesTab({ nodes, creds }: { nodes: MonitorNodeInfo[]; creds: CmdCre
             </p>
           ) : (
             <>
-              <div className="bg-surface0 border border-surface1 rounded-xl overflow-x-auto">
-                <table className="text-[11px] font-mono min-w-full">
-                  <thead>
+              {/* Таблица: скролл по обеим осям, занимает всё доступное место */}
+              <div className="flex-1 min-h-0 bg-surface0 border border-surface1 rounded-xl overflow-auto">
+                <table className="text-[11px] font-mono">
+                  <thead className="sticky top-0 z-10 bg-surface0">
                     <tr className="border-b border-surface1">
-                      <th className="text-left text-overlay0 font-normal py-2.5 px-4 sticky left-0 bg-surface0 min-w-[160px]">
+                      <th className="text-left text-overlay0 font-normal py-2.5 px-4 sticky left-0 z-20 bg-surface0 min-w-[160px]">
                         Профиль
                       </th>
                       {allModNames.map((m) => (
@@ -2434,7 +2435,7 @@ function ProfilesTab({ nodes, creds }: { nodes: MonitorNodeInfo[]; creds: CmdCre
                           {m}
                         </th>
                       ))}
-                      <th className="text-overlay0 font-normal py-2.5 px-4 text-center whitespace-nowrap min-w-[120px]">
+                      <th className="text-overlay0 font-normal py-2.5 px-4 text-center whitespace-nowrap min-w-[120px] sticky right-0 bg-surface0">
                         Применить
                       </th>
                     </tr>
@@ -2492,7 +2493,7 @@ function ProfilesTab({ nodes, creds }: { nodes: MonitorNodeInfo[]; creds: CmdCre
                             </td>
                           );
                         })}
-                        <td className="py-2.5 px-4 text-center">
+                        <td className="py-2.5 px-4 text-center sticky right-0 bg-surface0 border-l border-surface1/30">
                           {matrixApplySlug === p.slug ? (
                             <div className="flex items-center gap-1 flex-wrap justify-center">
                               {backendNodes.length > 0 && (
@@ -2567,7 +2568,7 @@ function ProfilesTab({ nodes, creds }: { nodes: MonitorNodeInfo[]; creds: CmdCre
 
               {/* Matrix apply terminal */}
               {matrixApplyLines.length > 0 && (
-                <div className="bg-surface0 border border-surface1 rounded-xl overflow-hidden">
+                <div className="shrink-0 bg-surface0 border border-surface1 rounded-xl overflow-hidden">
                   <div className="px-4 py-2 border-b border-surface1 flex items-center gap-2">
                     <Terminal size={11} className="text-overlay0" />
                     <span className={`w-2 h-2 rounded-full ${
@@ -3102,7 +3103,7 @@ export function ConfigManagement() {
   const creds: CmdCreds = { user: cmdUser, pass: cmdPass };
 
   return (
-    <div className="flex flex-col h-screen">
+    <div className="flex flex-col h-screen overflow-hidden">
       {/* Page header */}
       <div className="px-6 pt-6 pb-4 shrink-0">
         <h1 className="text-xl font-semibold text-text">Config Management</h1>
