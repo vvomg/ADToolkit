@@ -705,9 +705,9 @@ function EditorTab({ node, creds }: { node: MonitorNodeInfo; creds: CmdCreds }) 
                 </p>
               )}
 
-              {/* Inline CMD reference for selected module */}
-              {!loadingStored && selection?.kind === "module" && (
-                <CmdModuleRef moduleName={selection.name} nodeId={node.id} />
+              {/* Inline CMD reference for selected item */}
+              {!loadingStored && selection && (
+                <CmdModuleRef selection={selection} nodeId={node.id} />
               )}
             </div>
           </>
@@ -723,7 +723,19 @@ function EditorTab({ node, creds }: { node: MonitorNodeInfo; creds: CmdCreds }) 
 
 // ── Inline CMD reference for a specific module ───────────────────────────────
 
-function CmdModuleRef({ moduleName, nodeId }: { moduleName: string; nodeId: number }) {
+// CMD-команды, которые актуальны при работе с конфигом модуля
+const MODULE_CMD_KEYWORDS = ["module", "mail"];
+// Русскоязычные секции для domain и object
+const DOMAIN_SECTION  = "Работа с доменами";
+const OBJECT_SECTION  = "Работа с объектами в доменах";
+
+function CmdModuleRef({
+  selection,
+  nodeId,
+}: {
+  selection: TreeItem;
+  nodeId: number;
+}) {
   const [docs,         setDocs]         = useState<CMDMethodDoc[]>([]);
   const [nodeCommands, setNodeCommands] = useState<Map<string, boolean>>(new Map());
   const [open,         setOpen]         = useState(true);
@@ -749,12 +761,29 @@ function CmdModuleRef({ moduleName, nodeId }: { moduleName: string; nodeId: numb
       .catch(() => {});
   }, [nodeId]);
 
-  const filtered = useMemo(() => {
-    const q = moduleName.toLowerCase();
-    return docs.filter(
-      (d) => d.section?.toLowerCase() === q || d.name.toLowerCase().includes(q),
-    );
-  }, [docs, moduleName]);
+  const { filtered, label } = useMemo(() => {
+    if (selection.kind === "module") {
+      return {
+        label: `Модуль: ${selection.name}`,
+        filtered: docs.filter((d) =>
+          MODULE_CMD_KEYWORDS.some((kw) => d.name.toLowerCase().includes(kw)),
+        ),
+      };
+    }
+    if (selection.kind === "domain") {
+      return {
+        label: `Домен: ${selection.name}`,
+        filtered: docs.filter((d) => d.section === DOMAIN_SECTION),
+      };
+    }
+    if (selection.kind === "object") {
+      return {
+        label: `Объект: ${selection.uid}`,
+        filtered: docs.filter((d) => d.section === OBJECT_SECTION),
+      };
+    }
+    return { label: "", filtered: [] };
+  }, [docs, selection]);
 
   if (filtered.length === 0) return null;
 
@@ -768,7 +797,7 @@ function CmdModuleRef({ moduleName, nodeId }: { moduleName: string; nodeId: numb
         {open ? <ChevronDown size={11} className="text-overlay0" /> : <ChevronRight size={11} className="text-overlay0" />}
         <BookOpen size={11} className="text-overlay0" />
         <span className="text-xs text-subtext">CMD Справка</span>
-        <span className="text-[10px] font-mono text-overlay0">· {moduleName}</span>
+        <span className="text-[10px] font-mono text-overlay0">· {label}</span>
         <span className="ml-auto text-[10px] font-mono bg-surface1 text-overlay0 px-1.5 py-0.5 rounded">
           {filtered.length}
         </span>
