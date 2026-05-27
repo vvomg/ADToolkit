@@ -1310,11 +1310,15 @@ function ProfilesTab({ nodes, creds }: { nodes: MonitorNodeInfo[]; creds: CmdCre
   const applyAbortRef                     = useRef<AbortController | null>(null);
 
   // Pull drawer
-  const [pullOpen,    setPullOpen]        = useState(false);
-  const [pullIp,      setPullIp]          = useState("");
-  const [pullModules, setPullModules]     = useState<string[]>(FALLBACK_MODULES);
-  const [pullLoading, setPullLoading]     = useState(false);
-  const [pullError,   setPullError]       = useState<string | null>(null);
+  const [pullOpen,       setPullOpen]       = useState(false);
+  const [pullIp,         setPullIp]         = useState("");
+  const [pullModules,    setPullModules]    = useState<string[]>(FALLBACK_MODULES);
+  const [pullLoading,    setPullLoading]    = useState(false);
+  const [pullError,      setPullError]      = useState<string | null>(null);
+  // Доступные модули для pull (live → stored → fallback)
+  const [pullAvailMods,  setPullAvailMods]  = useState<string[]>(FALLBACK_MODULES);
+  const [pullModsLoading,setPullModsLoading]= useState(false);
+  const [pullModsSource, setPullModsSource] = useState<"live" | "stored" | "fallback">("fallback");
 
   // Search filter
   const [search, setSearch]               = useState("");
@@ -1335,6 +1339,48 @@ function ProfilesTab({ nodes, creds }: { nodes: MonitorNodeInfo[]; creds: CmdCre
   }, [applyLines]);
 
   useEffect(() => () => { applyAbortRef.current?.abort(); }, []);
+
+  // Загрузка списка модулей при смене ноды в pull-drawer (live → stored → fallback)
+  useEffect(() => {
+    if (!pullIp) return;
+    let cancelled = false;
+    setPullModsLoading(true);
+    const load = async () => {
+      // 1. Live — точный список с ноды
+      if (creds.pass.trim()) {
+        try {
+          const mods = await configApi.live.listModules(pullIp, creds);
+          if (!cancelled && mods.length > 0) {
+            setPullAvailMods(mods);
+            setPullModules(mods);
+            setPullModsSource("live");
+            setPullModsLoading(false);
+            return;
+          }
+        } catch { /* fall through */ }
+      }
+      // 2. Stored — из config-store
+      try {
+        const mods = await configApi.stored.listModules(pullIp);
+        if (!cancelled && mods.length > 0) {
+          setPullAvailMods(mods);
+          setPullModules(mods);
+          setPullModsSource("stored");
+          setPullModsLoading(false);
+          return;
+        }
+      } catch { /* fall through */ }
+      // 3. Fallback
+      if (!cancelled) {
+        setPullAvailMods(FALLBACK_MODULES);
+        setPullModules(FALLBACK_MODULES);
+        setPullModsSource("fallback");
+        setPullModsLoading(false);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [pullIp, creds.user, creds.pass]);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -2055,9 +2101,42 @@ function ProfilesTab({ nodes, creds }: { nodes: MonitorNodeInfo[]; creds: CmdCre
 
                     {/* Module checkboxes */}
                     <div>
-                      <label className="text-xs text-subtext block mb-1.5">Модули для загрузки</label>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center gap-1.5">
+                          <label className="text-xs text-subtext">Модули для загрузки</label>
+                          {pullIp && (
+                            pullModsLoading
+                              ? <Loader2 size={10} className="animate-spin text-overlay0" />
+                              : <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${
+                                  pullModsSource === "live"    ? "bg-green/10 text-green" :
+                                  pullModsSource === "stored"  ? "bg-blue/10 text-blue" :
+                                                                  "bg-surface1 text-overlay0"
+                                }`}>
+                                  {pullModsSource}
+                                </span>
+                          )}
+                        </div>
+                        {pullAvailMods.length > 0 && (
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => setPullModules(pullAvailMods)}
+                              className="text-[10px] text-blue hover:underline"
+                            >все</button>
+                            <button
+                              onClick={() => setPullModules([])}
+                              className="text-[10px] text-overlay0 hover:text-subtext hover:underline"
+                            >нет</button>
+                          </div>
+                        )}
+                      </div>
                       <div className="space-y-1 max-h-48 overflow-y-auto">
-                        {FALLBACK_MODULES.map((m) => (
+                        {pullModsLoading && !pullIp && (
+                          <p className="text-[10px] text-overlay0 italic py-1">Выберите ноду</p>
+                        )}
+                        {pullModsLoading && pullIp && (
+                          <p className="text-[10px] text-overlay0 italic py-1">Загрузка модулей…</p>
+                        )}
+                        {!pullModsLoading && pullAvailMods.map((m) => (
                           <label key={m} className="flex items-center gap-2 cursor-pointer select-none">
                             <input
                               type="checkbox"
