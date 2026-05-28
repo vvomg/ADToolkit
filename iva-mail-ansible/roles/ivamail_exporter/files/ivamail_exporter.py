@@ -72,14 +72,19 @@ class CMDConnection:
         self._sock = s
         # Читаем приветствие сервера
         greeting = self._read_line()
-        if not greeting.startswith("220"):
+        if not greeting.startswith("200"):
             raise CMDError(f"Unexpected greeting: {greeting!r}")
 
     def auth(self, user: str, password: str) -> None:
-        self._send(f'LOGIN "{user}" "{password}"')
-        resp = self._read_line()
-        if not resp.startswith("200"):
-            raise CMDError(f"Auth failed: {resp!r}")
+        # AUTH LOGIN → server prompts Username: → send user → server prompts Password: → send password → 200
+        self._send("AUTH LOGIN")
+        self._read_line()   # 'Username:' или '334 ...' — просто читаем, не проверяем
+        self._send(user)
+        self._read_line()   # 'Password:' или '334 ...' — просто читаем, не проверяем
+        self._send(password)
+        r3 = self._read_line()
+        if not r3.startswith("200"):
+            raise CMDError(f"Auth failed: {r3!r}")
 
     def cmd(self, command: str) -> tuple[str, str]:
         """Выполнить команду. Возвращает (code_line, body)."""
