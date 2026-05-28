@@ -5,7 +5,7 @@ ADToolKit — FastAPI entry point
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import deployment, license_config, license_upload, ssh_key, stream, credentials, config_store, package, cluster, monitor, profiles
+from .api import deployment, license_config, license_upload, ssh_key, stream, credentials, config_store, package, cluster, monitor, profiles, config_history
 
 app = FastAPI(
     title="ADToolKit API",
@@ -37,6 +37,7 @@ app.include_router(profiles.router,                                          tag
 app.include_router(package.router,         prefix="/api/package",          tags=["package"])
 app.include_router(cluster.router,         prefix="/api/cluster",           tags=["cluster"])
 app.include_router(monitor.router,         prefix="/api/monitor",           tags=["monitor"])
+app.include_router(config_history.router,                                    tags=["config-history"])
 
 
 @app.get("/health", tags=["health"])

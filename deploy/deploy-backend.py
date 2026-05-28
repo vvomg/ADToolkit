@@ -295,9 +295,9 @@ def deploy(args: argparse.Namespace) -> int:
         ssh.close()
         return 1
 
-    # Quick health check
+    # Quick health check — give the service time to start
     import time
-    time.sleep(2)
+    time.sleep(6)
     rc, out = run_remote(
         ssh,
         "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/api/deployment/status",

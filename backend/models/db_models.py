@@ -145,6 +145,34 @@ class MonitorCluster(Base):
         return f"<MonitorCluster id={self.id} name={self.name}>"
 
 
+class ConfigApplyHistory(Base):
+    """История применения конфигурационных профилей на ноды."""
+    __tablename__ = "config_apply_history"
+
+    id              = Column(Integer, primary_key=True, autoincrement=True)
+    applied_at      = Column(DateTime, default=datetime.utcnow, nullable=False)
+    profile_slug    = Column(String(100), nullable=False)
+    profile_name    = Column(String(200), nullable=False)
+    # 'cmd' | 'ansible'
+    apply_mode      = Column(String(20), nullable=False)
+    playbook_path   = Column(Text, nullable=True)
+    # JSON lists / dicts
+    target_hosts    = Column(JSON, nullable=False, default=list)
+    modules_applied = Column(JSON, nullable=False, default=list)
+    # {"10.3.6.206": "3.2.1", ...}
+    node_versions   = Column(JSON, nullable=True)
+    # 'ok' | 'partial' | 'failed'
+    status          = Column(String(20), nullable=False, default="ok")
+    # ["10.3.6.207: SMTP → FAILED: ..."]
+    errors          = Column(JSON, nullable=True)
+
+    def __repr__(self) -> str:
+        return (
+            f"<ConfigApplyHistory id={self.id} profile={self.profile_slug!r} "
+            f"status={self.status} hosts={self.target_hosts}>"
+        )
+
+
 class MonitorNode(Base):
     """Реестр нод для мониторинга на дашборде."""
     __tablename__ = "monitor_nodes"

@@ -58,6 +58,29 @@ export interface ProfileFull extends ProfileMeta {
   modules: Record<string, Record<string, unknown>>;
 }
 
+// ── History ────────────────────────────────────────────────────────────────────
+
+export interface HistoryEntry {
+  id: number;
+  applied_at: string;         // ISO datetime
+  profile_slug: string;
+  profile_name: string;
+  apply_mode: "cmd" | "ansible";
+  playbook_path: string | null;
+  target_hosts: string[];
+  modules_applied: string[];
+  node_versions: Record<string, string> | null;
+  status: "ok" | "partial" | "failed";
+  errors: string[] | null;
+}
+
+// Pull-all SSE event types
+export type PullAllEvent =
+  | { type: "progress";      ip: string; module: string; status: "ok"; config: Record<string, unknown> }
+  | { type: "error";         ip: string; module: string; error: string }
+  | { type: "connect_error"; ip: string; error: string }
+  | { type: "done";          total_ok: number; total_err: number };
+
 // ── Internal helpers ───────────────────────────────────────────────────────────
 
 async function apiFetch<T>(url: string, opts?: RequestInit): Promise<T> {
@@ -401,13 +424,85 @@ export const configApi = {
       cmdPass: string,
       onLine: (line: string) => void,
       onDone: (ok: boolean) => void,
+      mode: "cmd" | "ansible" = "cmd",
     ): AbortController {
       return streamPlaybook(
         `/profiles/${slug}/apply/stream`,
-        { hosts, modules, cmd_user: cmdUser, cmd_password: cmdPass },
+        { hosts, modules, cmd_user: cmdUser, cmd_password: cmdPass, mode },
         onLine,
         onDone,
       );
+    },
+
+    /** SSE pull-all: returns AbortController. Raw SSE lines are JSON PullAllEvent objects. */
+    streamPullAll(
+      slug: string,
+      ips: string[],
+      cmdUser: string,
+      cmdPass: string,
+      onEvent: (event: PullAllEvent) => void,
+      onDone: () => void,
+    ): AbortController {
+      const ac = new AbortController();
+      (async () => {
+        try {
+          const res = await fetch(`${BASE}/profiles/${slug}/pull-all/stream`, {
+            method:  "POST",
+            headers: { "Content-Type": "application/json" },
+            body:    JSON.stringify({ ips, cmd_user: cmdUser, cmd_password: cmdPass }),
+            signal:  ac.signal,
+          });
+          if (!res.ok || !res.body) { onDone(); return; }
+
+          const reader  = res.body.getReader();
+          const decoder = new TextDecoder();
+          let   buf     = "";
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, { stream: true });
+            const frames = buf.split("\n\n");
+            buf = frames.pop()!;
+            for (const frame of frames) {
+              for (const line of frame.split("\n")) {
+                if (line.startsWith("data: ")) {
+                  try { onEvent(JSON.parse(line.slice(6)) as PullAllEvent); } catch { /* */ }
+                }
+              }
+            }
+          }
+          onDone();
+        } catch (e: unknown) {
+          if ((e as { name?: string })?.name !== "AbortError") onDone();
+        }
+      })();
+      return ac;
+    },
+  },
+
+  // ── Apply history ─────────────────────────────────────────────────────────
+
+  history: {
+    async list(opts?: { limit?: number; offset?: number; profile_slug?: string; status?: string }): Promise<{ history: HistoryEntry[]; total: number }> {
+      const p: Record<string, string | number | undefined> = {
+        limit: opts?.limit ?? 50,
+        offset: opts?.offset ?? 0,
+        profile_slug: opts?.profile_slug,
+        status: opts?.status,
+      };
+      const r = await apiFetch<{ history: HistoryEntry[]; total: number }>(
+        `${BASE}/history${qs(p as Record<string, string | number | boolean | undefined>)}`,
+      );
+      return r;
+    },
+
+    async get(id: number): Promise<HistoryEntry> {
+      const r = await apiFetch<{ entry: HistoryEntry }>(`${BASE}/history/${id}`);
+      return r.entry;
+    },
+
+    async remove(id: number): Promise<void> {
+      await apiFetch(`${BASE}/history/${id}`, { method: "DELETE" });
     },
   },
 

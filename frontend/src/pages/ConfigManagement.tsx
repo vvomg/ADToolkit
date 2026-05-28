@@ -9,7 +9,7 @@ import {
   Layers, Copy, Trash2, Pencil, X, ChevronUp, PlusCircle,
 } from "lucide-react";
 import { useDeployStore } from "@/stores/deployStore";
-import { configApi, type CmdCreds, type ConfigData, type DiffEntry, type GitCommit, type ProfileMeta, type ProfileFull } from "@/api/configApi";
+import { configApi, type CmdCreds, type ConfigData, type DiffEntry, type GitCommit, type ProfileMeta, type ProfileFull, type HistoryEntry, type PullAllEvent } from "@/api/configApi";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1226,6 +1226,14 @@ function HistoryTab({ node, creds }: { node: MonitorNodeInfo; creds: CmdCreds })
   const [rolledBack,     setRolledBack]     = useState<string | null>(null);
   const [error,          setError]          = useState<string | null>(null);
 
+  // Apply history
+  const [applyHistory,    setApplyHistory]   = useState<HistoryEntry[]>([]);
+  const [historyLoading,  setHistoryLoading] = useState(true);
+  const [historyTotal,    setHistoryTotal]   = useState(0);
+  const [historyExpanded, setHistoryExpanded] = useState<number | null>(null);
+  const [historyOffset,   setHistoryOffset]  = useState(0);
+  const HISTORY_LIMIT = 20;
+
   // Tags
   const [tags,        setTags]        = useState<string[]>([]);
   const [loadingTags, setLoadingTags] = useState(true);
@@ -1248,6 +1256,14 @@ function HistoryTab({ node, creds }: { node: MonitorNodeInfo; creds: CmdCreds })
       .catch((e) => setError(String(e)))
       .finally(() => setLoadingLog(false));
   }, []);
+
+  useEffect(() => {
+    setHistoryLoading(true);
+    configApi.history.list({ limit: HISTORY_LIMIT, offset: historyOffset })
+      .then(({ history, total }) => { setApplyHistory(history); setHistoryTotal(total); })
+      .catch(() => {})
+      .finally(() => setHistoryLoading(false));
+  }, [historyOffset]);
 
   useEffect(() => {
     setLoadingTags(true);
@@ -1310,9 +1326,137 @@ function HistoryTab({ node, creds }: { node: MonitorNodeInfo; creds: CmdCreds })
     );
   };
 
+  const handleDeleteHistory = async (id: number) => {
+    try {
+      await configApi.history.remove(id);
+      setApplyHistory((prev) => prev.filter((e) => e.id !== id));
+      setHistoryTotal((t) => t - 1);
+      if (historyExpanded === id) setHistoryExpanded(null);
+    } catch { /* ignore */ }
+  };
+
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-4">
       {error && <ErrMsg msg={error} />}
+
+      {/* ── Apply History ──────────────────────────────────────────────────── */}
+      <div className="bg-surface0 border border-surface1 rounded-xl overflow-hidden">
+        <div className="px-4 py-2.5 border-b border-surface1 flex items-center gap-2">
+          <Clock size={13} className="text-overlay0" />
+          <span className="text-xs font-medium text-subtext">История применений профилей</span>
+          <span className="text-[10px] text-overlay0 font-mono ml-auto">{historyTotal} записей</span>
+        </div>
+
+        {historyLoading && (
+          <div className="flex items-center gap-2 px-4 py-5 text-xs text-overlay0">
+            <Loader2 size={12} className="animate-spin" /> Загрузка...
+          </div>
+        )}
+
+        {!historyLoading && applyHistory.length === 0 && (
+          <p className="px-4 py-5 text-xs text-overlay0 italic">
+            История пуста — применения профилей ещё не записаны.
+          </p>
+        )}
+
+        {!historyLoading && applyHistory.length > 0 && (
+          <div className="divide-y divide-surface1/20">
+            {applyHistory.map((entry) => {
+              const expanded = historyExpanded === entry.id;
+              const statusColor = entry.status === "ok" ? "text-green" : entry.status === "partial" ? "text-yellow" : "text-red";
+              const statusIcon  = entry.status === "ok" ? "✓" : entry.status === "partial" ? "⚠" : "✗";
+              const dt = new Date(entry.applied_at).toLocaleString("ru", { dateStyle: "short", timeStyle: "short" });
+              return (
+                <div key={entry.id}>
+                  <button
+                    onClick={() => setHistoryExpanded(expanded ? null : entry.id)}
+                    className="w-full text-left px-4 py-2.5 hover:bg-surface1/20 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className={`text-xs font-mono font-bold ${statusColor}`}>{statusIcon}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium text-text truncate">{entry.profile_name}</span>
+                          <Badge color={entry.apply_mode === "ansible" ? "blue" : "surface1"}>{entry.apply_mode.toUpperCase()}</Badge>
+                          <span className="text-[10px] text-overlay0 font-mono ml-auto shrink-0">{dt}</span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-[10px] text-overlay0">
+                            {entry.target_hosts.join(", ")} · {entry.modules_applied.length} модулей
+                          </span>
+                        </div>
+                      </div>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDeleteHistory(entry.id); }}
+                        className="shrink-0 text-overlay0 hover:text-red transition-colors p-0.5 rounded"
+                        title="Удалить запись"
+                      >
+                        <Trash2 size={11} />
+                      </button>
+                      <ChevronRight size={12} className={`text-overlay0 transition-transform shrink-0 ${expanded ? "rotate-90" : ""}`} />
+                    </div>
+                  </button>
+
+                  {expanded && (
+                    <div className="px-4 pb-3 bg-mantle/30 border-t border-surface1/20 space-y-2 text-[11px]">
+                      {/* Hosts + versions */}
+                      <div className="flex flex-wrap gap-2 pt-2">
+                        {entry.target_hosts.map((h) => (
+                          <span key={h} className="font-mono bg-surface1 px-1.5 py-0.5 rounded text-text">
+                            {h}
+                            {entry.node_versions?.[h] && (
+                              <span className="text-overlay0 ml-1">v{entry.node_versions[h]}</span>
+                            )}
+                          </span>
+                        ))}
+                      </div>
+                      {/* Modules */}
+                      <div className="flex flex-wrap gap-1.5">
+                        {entry.modules_applied.map((m) => (
+                          <span key={m} className="font-mono bg-blue/10 text-blue px-1.5 py-0.5 rounded">{m}</span>
+                        ))}
+                      </div>
+                      {/* Playbook */}
+                      {entry.playbook_path && (
+                        <p className="text-overlay0 font-mono truncate">
+                          📄 {entry.playbook_path}
+                        </p>
+                      )}
+                      {/* Errors */}
+                      {entry.errors && entry.errors.length > 0 && (
+                        <div className="bg-red/10 border border-red/20 rounded p-2 space-y-0.5">
+                          {entry.errors.map((e, i) => (
+                            <div key={i} className="text-red font-mono">{e}</div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Pagination */}
+        {historyTotal > HISTORY_LIMIT && (
+          <div className="flex items-center gap-2 px-4 py-2 border-t border-surface1 text-xs text-overlay0">
+            <button
+              onClick={() => setHistoryOffset(Math.max(0, historyOffset - HISTORY_LIMIT))}
+              disabled={historyOffset === 0}
+              className="px-2 py-0.5 rounded hover:bg-surface1 disabled:opacity-40 transition-colors"
+            >← Назад</button>
+            <span className="mx-auto font-mono">
+              {historyOffset + 1}–{Math.min(historyOffset + HISTORY_LIMIT, historyTotal)} / {historyTotal}
+            </span>
+            <button
+              onClick={() => setHistoryOffset(historyOffset + HISTORY_LIMIT)}
+              disabled={historyOffset + HISTORY_LIMIT >= historyTotal}
+              className="px-2 py-0.5 rounded hover:bg-surface1 disabled:opacity-40 transition-colors"
+            >Далее →</button>
+          </div>
+        )}
+      </div>
 
       {/* Git Tags — Config Snapshots */}
       <div className="bg-surface0 border border-surface1 rounded-xl overflow-hidden">
@@ -1514,7 +1658,9 @@ function HistoryTab({ node, creds }: { node: MonitorNodeInfo; creds: CmdCreds })
 
 function ProfilesTab({ nodes, creds }: { nodes: MonitorNodeInfo[]; creds: CmdCreds }) {
   // Sub-view: library (two-panel) or matrix
-  const [view, setView] = useState<"library" | "matrix">("library");
+  const [view,       setView]       = useState<"library" | "matrix">("library");
+  // Matrix sub-mode: A = presence list, B = values (current behaviour)
+  const [matrixMode, setMatrixMode] = useState<"presence" | "values">("values");
 
   // Profile list
   const [profiles,      setProfiles]      = useState<ProfileMeta[]>([]);
@@ -1548,14 +1694,16 @@ function ProfilesTab({ nodes, creds }: { nodes: MonitorNodeInfo[]; creds: CmdCre
   const [modError,     setModError]       = useState<string | null>(null);
 
   // Apply (SSE)
-  const [applyHosts,    setApplyHosts]    = useState<Set<string>>(new Set());
-  const [applyRunning,  setApplyRunning]  = useState(false);
-  const [applyLines,    setApplyLines]    = useState<string[]>([]);
-  const [applyExitOk,   setApplyExitOk]  = useState<boolean | null>(null);
-  const applyTermRef                      = useRef<HTMLPreElement>(null);
-  const applyAbortRef                     = useRef<AbortController | null>(null);
+  const [applyHosts,      setApplyHosts]      = useState<Set<string>>(new Set());
+  const [applyMode,       setApplyMode]       = useState<"cmd" | "ansible">("cmd");
+  const [applyModsMask,   setApplyModsMask]   = useState<Set<string>>(new Set()); // empty = all
+  const [applyRunning,    setApplyRunning]    = useState(false);
+  const [applyLines,      setApplyLines]      = useState<string[]>([]);
+  const [applyExitOk,     setApplyExitOk]     = useState<boolean | null>(null);
+  const applyTermRef                          = useRef<HTMLPreElement>(null);
+  const applyAbortRef                         = useRef<AbortController | null>(null);
 
-  // Pull drawer
+  // Pull drawer (single node)
   const [pullOpen,       setPullOpen]       = useState(false);
   const [pullIp,         setPullIp]         = useState("");
   const [pullModules,    setPullModules]    = useState<string[]>(FALLBACK_MODULES);
@@ -1565,6 +1713,21 @@ function ProfilesTab({ nodes, creds }: { nodes: MonitorNodeInfo[]; creds: CmdCre
   const [pullAvailMods,  setPullAvailMods]  = useState<string[]>(FALLBACK_MODULES);
   const [pullModsLoading,setPullModsLoading]= useState(false);
   const [pullModsSource, setPullModsSource] = useState<"live" | "stored" | "fallback">("fallback");
+
+  // Pull-all drawer (multiple nodes)
+  const [pullAllOpen,     setPullAllOpen]     = useState(false);
+  const [pullAllIps,      setPullAllIps]      = useState<Set<string>>(new Set());
+  const [pullAllRunning,  setPullAllRunning]  = useState(false);
+  const [pullAllLines,    setPullAllLines]    = useState<string[]>([]);
+  // Accumulated per-node data: module → ip → config
+  const [pullAllData,     setPullAllData]     = useState<Record<string, Record<string, Record<string, unknown>>>>({});
+  // Detected conflicts: module name → list of ips that differ
+  const [pullAllConflicts, setPullAllConflicts] = useState<Record<string, string[]>>({});
+  // Conflict resolution per module: "first" | "last" | ip
+  const [conflictResolution, setConflictResolution] = useState<Record<string, string>>({});
+  const [pullAllSaving,   setPullAllSaving]   = useState(false);
+  const pullAllAbortRef                       = useRef<AbortController | null>(null);
+  const pullAllTermRef                        = useRef<HTMLDivElement>(null);
 
   // Search filter
   const [search, setSearch]               = useState("");
@@ -1585,6 +1748,11 @@ function ProfilesTab({ nodes, creds }: { nodes: MonitorNodeInfo[]; creds: CmdCre
   }, [applyLines]);
 
   useEffect(() => () => { applyAbortRef.current?.abort(); }, []);
+  useEffect(() => () => { pullAllAbortRef.current?.abort(); }, []);
+
+  useEffect(() => {
+    if (pullAllTermRef.current) pullAllTermRef.current.scrollTop = pullAllTermRef.current.scrollHeight;
+  }, [pullAllLines]);
 
   // Загрузка списка модулей при смене ноды в pull-drawer (live → stored → fallback)
   useEffect(() => {
@@ -1783,16 +1951,116 @@ function ProfilesTab({ nodes, creds }: { nodes: MonitorNodeInfo[]; creds: CmdCre
     applyAbortRef.current?.abort();
     setApplyRunning(true);
     setApplyExitOk(null);
-    setApplyLines([`[${new Date().toLocaleTimeString("ru")}] Применение профиля «${selected.name}» → ${[...applyHosts].join(", ")}...`, ""]);
+    const modulesToApply = applyModsMask.size > 0 ? [...applyModsMask] : undefined;
+    setApplyLines([
+      `[${new Date().toLocaleTimeString("ru")}] Применение «${selected.name}» [${applyMode.toUpperCase()}] → ${[...applyHosts].join(", ")}${modulesToApply ? ` (${modulesToApply.length} модулей)` : " (все модули)"}...`,
+      "",
+    ]);
     applyAbortRef.current = configApi.profiles.streamApply(
       selected.slug,
       [...applyHosts],
-      undefined,
+      modulesToApply,
       creds.user,
       creds.pass,
       (line) => setApplyLines((prev) => [...prev, line]),
       (ok)   => { setApplyRunning(false); setApplyExitOk(ok); },
+      applyMode,
     );
+  }
+
+  function handlePullAllStart() {
+    if (!selected || pullAllIps.size === 0) return;
+    pullAllAbortRef.current?.abort();
+    setPullAllRunning(true);
+    setPullAllLines([`[${new Date().toLocaleTimeString("ru")}] Загрузка со всех нод: ${[...pullAllIps].join(", ")}...`, ""]);
+    setPullAllData({});
+    setPullAllConflicts({});
+    setConflictResolution({});
+
+    // Accumulated data per module per ip
+    const acc: Record<string, Record<string, Record<string, unknown>>> = {};
+
+    pullAllAbortRef.current = configApi.profiles.streamPullAll(
+      selected.slug,
+      [...pullAllIps],
+      creds.user,
+      creds.pass,
+      (event: PullAllEvent) => {
+        if (event.type === "progress") {
+          setPullAllLines((prev) => [...prev, `[${event.ip}] ${event.module} → ok`]);
+          if (!acc[event.module]) acc[event.module] = {};
+          acc[event.module][event.ip] = event.config;
+          setPullAllData({ ...acc });
+        } else if (event.type === "error") {
+          setPullAllLines((prev) => [...prev, `[${event.ip}] ${event.module} → ОШИБКА: ${event.error}`]);
+        } else if (event.type === "connect_error") {
+          setPullAllLines((prev) => [...prev, `[${event.ip}] ПОДКЛЮЧЕНИЕ FAILED: ${event.error}`]);
+        } else if (event.type === "done") {
+          setPullAllLines((prev) => [...prev, ``, `Готово: ${event.total_ok} ok, ${event.total_err} ошибок`]);
+          // Detect conflicts: modules where values differ across nodes
+          const conflicts: Record<string, string[]> = {};
+          for (const [mod, nodeData] of Object.entries(acc)) {
+            const ips = Object.keys(nodeData);
+            if (ips.length < 2) continue;
+            const jsons = ips.map((ip) => JSON.stringify(nodeData[ip]));
+            const allSame = jsons.every((j) => j === jsons[0]);
+            if (!allSame) conflicts[mod] = ips;
+          }
+          setPullAllConflicts(conflicts);
+        }
+      },
+      () => { setPullAllRunning(false); },
+    );
+  }
+
+  async function handlePullAllSave() {
+    if (!selected || Object.keys(pullAllData).length === 0) return;
+    setPullAllSaving(true);
+    const errors: string[] = [];
+
+    for (const [module, nodeData] of Object.entries(pullAllData)) {
+      const ips = Object.keys(nodeData);
+      const hasConflict = pullAllConflicts[module];
+
+      let chosenConfig: Record<string, unknown>;
+      if (!hasConflict) {
+        // No conflict — take from first node
+        chosenConfig = nodeData[ips[0]];
+      } else {
+        const resolution = conflictResolution[module] ?? "first";
+        if (resolution === "first") {
+          chosenConfig = nodeData[ips[0]];
+        } else if (resolution === "last") {
+          chosenConfig = nodeData[ips[ips.length - 1]];
+        } else {
+          // resolution is an IP
+          chosenConfig = nodeData[resolution] ?? nodeData[ips[0]];
+        }
+      }
+
+      try {
+        await configApi.profiles.upsertModule(selected.slug, module, chosenConfig);
+      } catch (e) {
+        errors.push(`${module}: ${e}`);
+      }
+    }
+
+    try {
+      const updated = await configApi.profiles.get(selected.slug);
+      setSelected(updated);
+      setProfiles((prev) => prev.map((p) => p.slug === updated.slug
+        ? { ...p, module_names: updated.module_names } : p));
+    } catch { /* ignore */ }
+
+    setPullAllSaving(false);
+    if (errors.length === 0) {
+      setPullAllOpen(false);
+      setPullAllData({});
+      setPullAllConflicts({});
+      setPullAllLines([]);
+    } else {
+      setPullAllLines((prev) => [...prev, "", `Ошибки сохранения: ${errors.join("; ")}`]);
+    }
   }
 
   async function handlePull() {
@@ -1892,6 +2160,21 @@ function ProfilesTab({ nodes, creds }: { nodes: MonitorNodeInfo[]; creds: CmdCre
           <Layers size={11} />
           Матрица
         </button>
+        {view === "matrix" && (
+          <div className="flex items-center gap-0.5 bg-surface1/50 rounded-lg p-0.5 ml-2">
+            {(["presence", "values"] as const).map((m) => (
+              <button
+                key={m}
+                onClick={() => setMatrixMode(m)}
+                className={`text-[10px] px-2 py-0.5 rounded-md transition-colors ${
+                  matrixMode === m ? "bg-blue/20 text-blue" : "text-overlay0 hover:text-text"
+                }`}
+              >
+                {m === "presence" ? "А: Наличие" : "Б: Значения"}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="ml-auto text-[10px] text-overlay0">
           {profiles.length} профил{profiles.length === 1 ? "ь" : profiles.length < 5 ? "я" : "ей"}
         </div>
@@ -2119,13 +2402,22 @@ function ProfilesTab({ nodes, creds }: { nodes: MonitorNodeInfo[]; creds: CmdCre
                       <p className="text-[10px] font-semibold text-overlay0 uppercase tracking-widest">
                         Модули ({selected.module_names.length})
                       </p>
-                      <button
-                        onClick={() => setPullOpen(true)}
-                        className="flex items-center gap-1 text-[11px] text-blue hover:text-blue/80 hover:bg-blue/5 px-2 py-1 rounded-lg transition-colors"
-                      >
-                        <Download size={11} />
-                        Добавить с ноды
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => setPullOpen(true)}
+                          className="flex items-center gap-1 text-[11px] text-blue hover:text-blue/80 hover:bg-blue/5 px-2 py-1 rounded-lg transition-colors"
+                        >
+                          <Download size={11} />
+                          С ноды
+                        </button>
+                        <button
+                          onClick={() => { setPullAllOpen(true); setPullAllIps(new Set(ivamailNodes.map((n) => n.ip))); }}
+                          className="flex items-center gap-1 text-[11px] text-green hover:text-green/80 hover:bg-green/5 px-2 py-1 rounded-lg transition-colors"
+                        >
+                          <Download size={11} />
+                          Со всех нод
+                        </button>
+                      </div>
                     </div>
 
                     {modError && <ErrMsg msg={modError} />}
@@ -2245,17 +2537,37 @@ function ProfilesTab({ nodes, creds }: { nodes: MonitorNodeInfo[]; creds: CmdCre
                     <p className="text-[10px] font-semibold text-overlay0 uppercase tracking-widest">
                       Применить профиль
                     </p>
+
+                    {/* Mode toggle */}
+                    <div className="flex items-center gap-1 bg-mantle rounded-lg p-0.5">
+                      {(["cmd", "ansible"] as const).map((m) => (
+                        <button
+                          key={m}
+                          onClick={() => setApplyMode(m)}
+                          className={`flex-1 text-[11px] py-1 rounded-md transition-colors font-mono font-medium ${
+                            applyMode === m
+                              ? "bg-blue/20 text-blue"
+                              : "text-overlay0 hover:text-text"
+                          }`}
+                        >
+                          {m === "cmd" ? "CMD (прямо)" : "Ansible"}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Target hosts */}
                     {ivamailNodes.length === 0 ? (
                       <p className="text-xs text-overlay0 italic">Нет IVA Mail нод в реестре</p>
                     ) : (
                       <div className="space-y-2">
+                        <p className="text-[9px] text-overlay0/60 uppercase tracking-wider">Ноды</p>
                         {[
                           { label: "Backend",  list: backendNodes },
                           { label: "Frontend", list: frontendNodes },
                         ].map(({ label, list }) =>
                           list.length > 0 && (
                             <div key={label} className="space-y-1">
-                              <p className="text-[9px] text-overlay0/60 uppercase tracking-wider">{label}</p>
+                              <p className="text-[9px] text-overlay0/40 uppercase tracking-wider">{label}</p>
                               <div className="flex flex-wrap gap-2">
                                 {list.map((n) => {
                                   const nodeLabel = n.display_name || n.hostname || n.ip;
@@ -2281,25 +2593,71 @@ function ProfilesTab({ nodes, creds }: { nodes: MonitorNodeInfo[]; creds: CmdCre
                           )
                         )}
                         <div className="flex items-center gap-2 pt-0.5">
-                          <button
-                            onClick={() => setApplyHosts(new Set(ivamailNodes.map((n) => n.ip)))}
-                            className="text-[10px] text-overlay0 hover:text-text transition-colors"
-                          >все</button>
+                          <button onClick={() => setApplyHosts(new Set(ivamailNodes.map((n) => n.ip)))}
+                            className="text-[10px] text-overlay0 hover:text-text transition-colors">все</button>
                           <span className="text-overlay0/40 text-[10px]">·</span>
-                          <button
-                            onClick={() => setApplyHosts(new Set())}
-                            className="text-[10px] text-overlay0 hover:text-text transition-colors"
-                          >нет</button>
+                          <button onClick={() => setApplyHosts(new Set())}
+                            className="text-[10px] text-overlay0 hover:text-text transition-colors">нет</button>
                         </div>
                       </div>
                     )}
+
+                    {/* Module mask (which modules to apply) */}
+                    {selected && selected.module_names.length > 0 && (
+                      <div className="space-y-1.5">
+                        <div className="flex items-center gap-2">
+                          <p className="text-[9px] text-overlay0/60 uppercase tracking-wider flex-1">Модули</p>
+                          <button onClick={() => setApplyModsMask(new Set())}
+                            className="text-[10px] text-overlay0 hover:text-text transition-colors">все</button>
+                          <span className="text-overlay0/40 text-[10px]">·</span>
+                          <button onClick={() => setApplyModsMask(new Set(selected.module_names))}
+                            className="text-[10px] text-overlay0 hover:text-text transition-colors">выбрать все</button>
+                        </div>
+                        <div className="flex flex-wrap gap-2 bg-mantle/40 rounded-lg px-3 py-2 max-h-32 overflow-y-auto">
+                          {selected.module_names.map((m) => {
+                            // If mask is empty → all are "active" (unfiltered)
+                            const active = applyModsMask.size === 0 || applyModsMask.has(m);
+                            return (
+                              <label key={m} className="flex items-center gap-1 cursor-pointer select-none">
+                                <input
+                                  type="checkbox"
+                                  checked={active}
+                                  onChange={(e) => setApplyModsMask((prev) => {
+                                    // When empty set → all; first uncheck = switch to explicit list
+                                    let next: Set<string>;
+                                    if (prev.size === 0) {
+                                      // Was "all" — switch to explicit mode with all except this one
+                                      next = new Set(selected.module_names.filter((x) => x !== m));
+                                    } else {
+                                      next = new Set(prev);
+                                      if (e.target.checked) next.add(m); else next.delete(m);
+                                    }
+                                    // If all selected → revert to empty (all)
+                                    if (next.size === selected.module_names.length) return new Set();
+                                    return next;
+                                  })}
+                                  className="accent-blue w-3 h-3"
+                                />
+                                <span className="text-[10px] text-subtext font-mono">{m}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                        {applyModsMask.size > 0 && (
+                          <p className="text-[10px] text-yellow">
+                            Будут применены только {applyModsMask.size} из {selected.module_names.length} модулей
+                          </p>
+                        )}
+                      </div>
+                    )}
+
                     <button
                       onClick={handleApply}
                       disabled={applyRunning || applyHosts.size === 0}
                       className="flex items-center gap-1.5 text-xs bg-green/10 hover:bg-green/20 disabled:opacity-50 text-green border border-green/30 font-semibold px-4 py-1.5 rounded-lg transition-colors"
                     >
                       {applyRunning ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />}
-                      Применить на выбранные →
+                      Применить [{applyMode.toUpperCase()}] →
                     </button>
 
                     {applyLines.length > 0 && (
@@ -2333,6 +2691,125 @@ function ProfilesTab({ nodes, creds }: { nodes: MonitorNodeInfo[]; creds: CmdCre
                 </div>
               </div>
             )}
+
+            {/* Pull-all drawer */}
+            <AnimatePresence>
+              {pullAllOpen && selected && (
+                <motion.div
+                  initial={{ x: 400, opacity: 0 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  exit={{ x: 400, opacity: 0 }}
+                  transition={{ duration: 0.18 }}
+                  className="absolute right-0 top-0 bottom-0 w-[420px] bg-mantle border-l border-surface1 z-20 flex flex-col shadow-xl"
+                >
+                  <div className="flex items-center justify-between px-5 py-3 border-b border-surface1 shrink-0">
+                    <div>
+                      <h3 className="text-sm font-semibold text-text">Загрузить со всех нод</h3>
+                      <p className="text-[10px] text-overlay0 mt-0.5">Профиль: {selected.name}</p>
+                    </div>
+                    <button onClick={() => { setPullAllOpen(false); pullAllAbortRef.current?.abort(); }}
+                      className="text-overlay0 hover:text-text transition-colors">
+                      <X size={14} />
+                    </button>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto p-5 space-y-4">
+                    {/* IP selection */}
+                    <div className="space-y-1.5">
+                      <p className="text-[10px] text-overlay0 uppercase tracking-wider font-semibold">Ноды</p>
+                      <div className="flex flex-wrap gap-2">
+                        {ivamailNodes.map((n) => (
+                          <label key={n.ip} className="flex items-center gap-1.5 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={pullAllIps.has(n.ip)}
+                              onChange={(e) => setPullAllIps((prev) => {
+                                const next = new Set(prev);
+                                if (e.target.checked) next.add(n.ip); else next.delete(n.ip);
+                                return next;
+                              })}
+                              className="accent-green w-3.5 h-3.5"
+                            />
+                            <span className="text-xs font-mono text-subtext">{n.display_name || n.ip}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Start button */}
+                    <button
+                      onClick={handlePullAllStart}
+                      disabled={pullAllRunning || pullAllIps.size === 0}
+                      className="flex items-center gap-1.5 text-xs bg-green/10 hover:bg-green/20 disabled:opacity-50 text-green border border-green/30 font-semibold px-4 py-1.5 rounded-lg transition-colors"
+                    >
+                      {pullAllRunning ? <Loader2 size={11} className="animate-spin" /> : <Download size={11} />}
+                      Загрузить
+                    </button>
+
+                    {/* Terminal output */}
+                    {pullAllLines.length > 0 && (
+                      <div
+                        ref={pullAllTermRef}
+                        className="bg-base border border-surface1 rounded-xl p-3 h-40 overflow-y-auto text-[11px] font-mono space-y-0.5"
+                      >
+                        {pullAllLines.map((line, i) => (
+                          <div key={i} className={line.includes("ОШИБКА") || line.includes("FAILED") ? "text-red" : line.includes("ok") ? "text-green" : "text-overlay0"}>
+                            {line || " "}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Conflicts resolution */}
+                    {Object.keys(pullAllConflicts).length > 0 && (
+                      <div className="space-y-3">
+                        <p className="text-[10px] font-semibold text-yellow uppercase tracking-wider flex items-center gap-1.5">
+                          <AlertTriangle size={10} />
+                          Конфликты ({Object.keys(pullAllConflicts).length})
+                        </p>
+                        <p className="text-[11px] text-subtext">
+                          Для следующих модулей значения на нодах различаются. Выберите источник:
+                        </p>
+                        {Object.entries(pullAllConflicts).map(([mod, ips]) => (
+                          <div key={mod} className="bg-surface0 border border-yellow/30 rounded-lg p-3 space-y-2">
+                            <p className="text-xs font-mono text-yellow font-semibold">{mod}</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {(["first", "last", ...ips] as string[]).map((opt) => (
+                                <label key={opt} className="flex items-center gap-1 cursor-pointer select-none">
+                                  <input
+                                    type="radio"
+                                    name={`conflict-${mod}`}
+                                    value={opt}
+                                    checked={(conflictResolution[mod] ?? "first") === opt}
+                                    onChange={() => setConflictResolution((prev) => ({ ...prev, [mod]: opt }))}
+                                    className="accent-yellow w-3 h-3"
+                                  />
+                                  <span className="text-[10px] text-subtext font-mono">
+                                    {opt === "first" ? "Первая нода" : opt === "last" ? "Последняя нода" : opt}
+                                  </span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Save button (shown after pull done) */}
+                    {Object.keys(pullAllData).length > 0 && !pullAllRunning && (
+                      <button
+                        onClick={handlePullAllSave}
+                        disabled={pullAllSaving}
+                        className="flex items-center gap-1.5 text-xs bg-blue/10 hover:bg-blue/20 disabled:opacity-50 text-blue border border-blue/30 font-semibold px-4 py-1.5 rounded-lg transition-colors"
+                      >
+                        {pullAllSaving ? <Loader2 size={11} className="animate-spin" /> : <Save size={11} />}
+                        Сохранить в профиль ({Object.keys(pullAllData).length} модулей)
+                      </button>
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             {/* Pull drawer */}
             <AnimatePresence>
@@ -2463,6 +2940,57 @@ function ProfilesTab({ nodes, creds }: { nodes: MonitorNodeInfo[]; creds: CmdCre
             <>
               {/* Таблица: скролл по обеим осям, занимает всё доступное место */}
               <div className="flex-1 min-h-0 bg-surface0 border border-surface1 rounded-xl overflow-auto">
+
+                {/* ── Режим А: Наличие модулей по профилям ── */}
+                {matrixMode === "presence" && (
+                  <table className="text-[11px] font-mono w-full">
+                    <thead className="sticky top-0 z-10 bg-surface0">
+                      <tr className="border-b border-surface1">
+                        <th className="text-left text-overlay0 font-normal py-2.5 px-4 sticky left-0 z-20 bg-surface0 min-w-[160px]">
+                          Модуль
+                        </th>
+                        {profiles.map((p) => (
+                          <th key={p.slug} className="text-overlay0 font-normal py-2.5 px-3 text-center whitespace-nowrap">
+                            <button
+                              onClick={() => { setView("library"); openProfile(p.slug); }}
+                              className="text-blue hover:underline"
+                            >{p.name}</button>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {allModNames.map((mod) => {
+                        const presences = profiles.map((p) => p.module_names.includes(mod));
+                        const allHave   = presences.every(Boolean);
+                        const noneHave  = presences.every((b) => !b);
+                        return (
+                          <tr key={mod} className={`border-b border-surface1/40 hover:bg-surface1/10 transition-colors ${
+                            allHave ? "" : noneHave ? "opacity-50" : "bg-yellow/3"
+                          }`}>
+                            <td className="py-2 px-4 sticky left-0 bg-surface0 font-semibold text-text">
+                              {mod}
+                              {!allHave && !noneHave && (
+                                <span className="ml-2 text-yellow text-[9px] align-middle">⚠</span>
+                              )}
+                            </td>
+                            {presences.map((has, i) => (
+                              <td key={profiles[i].slug} className="py-2 px-3 text-center">
+                                {has
+                                  ? <span className="text-green text-sm">✓</span>
+                                  : <span className="text-overlay0/40 text-sm">—</span>
+                                }
+                              </td>
+                            ))}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+
+                {/* ── Режим Б: Значения (текущий) ── */}
+                {matrixMode === "values" && (
                 <table className="text-[11px] font-mono">
                   <thead className="sticky top-0 z-10 bg-surface0">
                     <tr className="border-b border-surface1">
@@ -2603,6 +3131,7 @@ function ProfilesTab({ nodes, creds }: { nodes: MonitorNodeInfo[]; creds: CmdCre
                     ))}
                   </tbody>
                 </table>
+                )} {/* end matrixMode === "values" */}
               </div>
 
               {/* Matrix apply terminal */}

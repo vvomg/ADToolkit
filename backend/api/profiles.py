@@ -17,6 +17,7 @@ Endpoints
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any, Optional
@@ -81,7 +82,16 @@ class DuplicateRequest(BaseModel):
 
 class ApplyRequest(BaseModel):
     hosts: list[str]
-    modules: Optional[list[str]] = None   # None → all modules in profile
+    modules: Optional[list[str]] = None   # None → all modules in profile; [] means skip all
+    cmd_user: str
+    cmd_password: str
+    port: int = 106
+    mode: str = "cmd"   # "cmd" | "ansible"
+
+
+class PullAllStreamRequest(BaseModel):
+    """Запрос для SSE-стриминга pull со всех нод."""
+    ips: list[str]
     cmd_user: str
     cmd_password: str
     port: int = 106
@@ -214,47 +224,235 @@ async def duplicate_profile(slug: str, req: DuplicateRequest) -> dict[str, Any]:
     return {"profile": profile.model_dump()}
 
 
+@router.post("/{slug}/pull-all/stream")
+async def pull_all_stream(slug: str, req: PullAllStreamRequest) -> StreamingResponse:
+    """
+    Параллельно опрашивает все IP из req.ips:
+      1. Для каждого IP делает modules_list()
+      2. Параллельно читает все модули через module_read_config()
+      3. Стримит JSON-события для каждого модуля:
+         {"type":"progress","ip":...,"module":...,"status":"ok","config":{...}}
+         {"type":"error","ip":...,"module":...,"error":"..."}
+         {"type":"connect_error","ip":...,"error":"..."}
+      4. В конце: {"type":"done","total_ok":N,"total_err":M}
+
+    Коллизии (одинаковый модуль с разными значениями) детектируются на клиенте.
+    """
+    # Verify profile exists
+    ps.get_profile(slug)
+
+    async def _fetch_ip(ip: str, counters: dict) -> list[str]:
+        """Fetch all module configs from one IP. Returns list of JSON-encoded event strings."""
+        events: list[str] = []
+
+        # Connect
+        try:
+            client = await _cmd(ip, req.port, req.cmd_user, req.cmd_password)
+        except Exception as exc:
+            events.append(json.dumps({"type": "connect_error", "ip": ip, "error": str(exc)}))
+            return events
+
+        # Get module list
+        modules: list[str] = []
+        try:
+            resp = await client.modules_list()
+            if resp.ok:
+                try:
+                    raw = json.loads(resp.text)
+                    if isinstance(raw, list):
+                        modules = raw
+                    elif isinstance(raw, dict):
+                        modules = list(raw.values())
+                    else:
+                        modules = []
+                except Exception:
+                    modules = [line.strip() for line in resp.text.splitlines() if line.strip()]
+            else:
+                events.append(json.dumps({
+                    "type": "error", "ip": ip, "module": "__list__",
+                    "error": f"modules_list failed: {resp.text[:80]}",
+                }))
+        except Exception as exc:
+            events.append(json.dumps({"type": "error", "ip": ip, "module": "__list__", "error": str(exc)}))
+
+        if not modules:
+            try:
+                await client.close()
+            except Exception:
+                pass
+            return events
+
+        # Read module configs SEQUENTIALLY — CMD protocol uses a single TCP connection;
+        # concurrent reads on the same StreamReader raise "readuntil() called while
+        # another coroutine is already waiting for incoming data".
+        # Parallelism happens at the IP level (separate connections), not within one IP.
+        for module in modules:
+            try:
+                r = await client.module_read_config(module)
+                if r.ok:
+                    try:
+                        cfg = json.loads(r.text)
+                        if not isinstance(cfg, dict):
+                            cfg = {}
+                    except Exception:
+                        cfg = {}
+                    counters["ok"] += 1
+                    events.append(json.dumps({"type": "progress", "ip": ip, "module": module,
+                                              "status": "ok", "config": cfg}))
+                else:
+                    counters["err"] += 1
+                    events.append(json.dumps({"type": "error", "ip": ip, "module": module,
+                                              "error": f"server {r.code}: {r.text[:80]}"}))
+            except CMDError as exc:
+                counters["err"] += 1
+                events.append(json.dumps({"type": "error", "ip": ip, "module": module,
+                                          "error": str(exc)}))
+            except Exception as exc:
+                counters["err"] += 1
+                events.append(json.dumps({"type": "error", "ip": ip, "module": module,
+                                          "error": f"unexpected: {exc}"}))
+
+        try:
+            await client.close()
+        except Exception:
+            pass
+
+        return events
+
+    async def _generate():
+        counters: dict = {"ok": 0, "err": 0}
+
+        # Fetch all IPs in parallel; collect results then stream them
+        all_ip_events: list[list[str]] = await asyncio.gather(
+            *[_fetch_ip(ip, counters) for ip in req.ips]
+        )
+
+        for ip_events in all_ip_events:
+            for event in ip_events:
+                yield f"data: {event}\n\n"
+
+        yield f"data: {json.dumps({'type': 'done', 'total_ok': counters['ok'], 'total_err': counters['err']})}\n\n"
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @router.post("/{slug}/apply/stream")
 async def apply_stream(slug: str, req: ApplyRequest) -> StreamingResponse:
     """
-    Apply profile module configs to one or more live nodes via CMD.
+    Apply profile module configs to one or more live nodes.
 
-    SSE stream — each line is:
-      data: [{host}] {module} → ok\n\n
-      data: [{host}] {module} → FAILED: {err}\n\n
-      data: [EXIT 0] Applied N modules to M hosts\n\n   (or EXIT 1 on errors)
+    mode="cmd"     → прямое применение через CMD протокол
+    mode="ansible" → запуск Ansible-плейбука (генерация + ansible-runner)
+
+    SSE stream events (строки data: ...):
+      [10.3.6.206] Cluster → ok
+      [10.3.6.206] SMTP → FAILED: ...
+      [10.3.6.206] version: 3.2.1         (версия ПО до применения)
+      [EXIT 0] Applied N modules to M hosts
+      [EXIT 1] N errors, M ok — K hosts
     """
+    from ..api.config_history import create_history_entry, CreateHistoryRequest
+    from ..services import ansible_runner as ar
+
     profile = ps.get_profile(slug)
 
     # Determine which modules to apply
-    if req.modules:
+    if req.modules is not None:
         module_names = [m for m in req.modules if m in profile.modules]
         skipped = [m for m in req.modules if m not in profile.modules]
         if skipped:
-            logger.warning(
-                "apply/stream: modules not found in profile '%s': %s", slug, skipped
-            )
+            logger.warning("apply/stream: modules not in profile '%s': %s", slug, skipped)
     else:
         module_names = list(profile.modules.keys())
 
     async def _generate():
         total_ok = 0
         total_err = 0
+        all_errors: list[str] = []
+        node_versions: dict[str, str] = {}
 
+        # ── Ansible mode ─────────────────────────────────────────────────────
+        if req.mode == "ansible":
+            yield "data: [ANSIBLE] Generating playbook from profile...\n\n"
+            try:
+                from ..services.playbook_generator import generate_apply_playbook, save_generated_playbook
+                import os
+                config_store_dir = os.environ.get("CONFIG_STORE_DIR", "/opt/ivamail-config-store")
+                content = generate_apply_playbook(
+                    hosts=req.hosts,
+                    config_store_dir=config_store_dir,
+                    mode="full",
+                    include_objects=False,
+                )
+                playbook_path = save_generated_playbook(content, config_store_dir, f"profile-{slug}")
+                yield f"data: [ANSIBLE] Playbook: {playbook_path}\n\n"
+
+                gen = ar.stream_playbook(
+                    playbook_path,
+                    extra_vars={"backend_hosts": ",".join(req.hosts)},
+                    env={"IVAMAIL_CMD_USER": req.cmd_user, "IVAMAIL_CMD_PASSWORD": req.cmd_password},
+                )
+                async for line in gen:
+                    yield f"data: {line}\n\n"
+                    if "[EXIT 0]" in line or "PLAY RECAP" in line:
+                        total_ok = len(module_names) * len(req.hosts)
+                    elif "FAILED" in line or "ERROR" in line:
+                        total_err += 1
+                        all_errors.append(line)
+
+                status = "ok" if total_err == 0 else ("partial" if total_ok > 0 else "failed")
+                try:
+                    create_history_entry(CreateHistoryRequest(
+                        profile_slug=slug,
+                        profile_name=profile.name,
+                        apply_mode="ansible",
+                        playbook_path=str(playbook_path),
+                        target_hosts=req.hosts,
+                        modules_applied=module_names,
+                        node_versions=node_versions,
+                        status=status,
+                        errors=all_errors or None,
+                    ))
+                except Exception as he:
+                    logger.warning("Failed to write history: %s", he)
+                return
+            except Exception as exc:
+                yield f"data: [ERROR] Ansible mode failed: {exc}\n\n"
+                return
+
+        # ── CMD mode ──────────────────────────────────────────────────────────
         for host in req.hosts:
             client: Optional[CMDClient] = None
             try:
                 client = await _cmd(host, req.port, req.cmd_user, req.cmd_password)
             except Exception as exc:
-                yield f"data: [{host}] CONNECT FAILED: {exc}\n\n"
+                msg = f"[{host}] CONNECT FAILED: {exc}"
+                yield f"data: {msg}\n\n"
                 total_err += len(module_names)
+                all_errors.append(msg)
                 continue
+
+            # Fetch SystemInfo for version
+            try:
+                si_resp = await client.system_info()
+                if si_resp.ok and si_resp.text:
+                    try:
+                        si = json.loads(si_resp.text)
+                        version = si.get("Server version", si.get("Version", "unknown"))
+                    except Exception:
+                        version = "unknown"
+                    node_versions[host] = str(version)
+                    yield f"data: [{host}] version: {version}\n\n"
+            except Exception:
+                pass  # Non-critical
 
             for module in module_names:
                 module_config = profile.modules.get(module, {})
                 try:
-                    # Build key_val_pairs flat list from config dict:
-                    # ["Key1", val1, "Key2", val2, ...]
                     key_val_pairs: list[Any] = []
                     for k, v in module_config.items():
                         key_val_pairs.append(k)
@@ -269,14 +467,20 @@ async def apply_stream(slug: str, req: ApplyRequest) -> StreamingResponse:
                         yield f"data: [{host}] {module} → ok\n\n"
                         total_ok += 1
                     else:
-                        msg = resp.text[:120].replace("\n", " ")
-                        yield f"data: [{host}] {module} → FAILED: {resp.code} {msg}\n\n"
+                        msg_txt = resp.text[:120].replace("\n", " ")
+                        err = f"[{host}] {module} → FAILED: {resp.code} {msg_txt}"
+                        yield f"data: {err}\n\n"
+                        all_errors.append(err)
                         total_err += 1
                 except CMDError as exc:
-                    yield f"data: [{host}] {module} → FAILED: {exc}\n\n"
+                    err = f"[{host}] {module} → FAILED: {exc}"
+                    yield f"data: {err}\n\n"
+                    all_errors.append(err)
                     total_err += 1
                 except Exception as exc:
-                    yield f"data: [{host}] {module} → FAILED: unexpected error: {exc}\n\n"
+                    err = f"[{host}] {module} → FAILED: unexpected: {exc}"
+                    yield f"data: {err}\n\n"
+                    all_errors.append(err)
                     total_err += 1
 
             try:
@@ -285,15 +489,27 @@ async def apply_stream(slug: str, req: ApplyRequest) -> StreamingResponse:
                 pass
 
         if total_err == 0:
-            yield (
-                f"data: [EXIT 0] Applied {total_ok} module(s) to "
-                f"{len(req.hosts)} host(s)\n\n"
-            )
+            yield f"data: [EXIT 0] Applied {total_ok} module(s) to {len(req.hosts)} host(s)\n\n"
+            status = "ok"
         else:
-            yield (
-                f"data: [EXIT 1] {total_err} error(s), "
-                f"{total_ok} ok — {len(req.hosts)} host(s)\n\n"
-            )
+            yield f"data: [EXIT 1] {total_err} error(s), {total_ok} ok — {len(req.hosts)} host(s)\n\n"
+            status = "partial" if total_ok > 0 else "failed"
+
+        # Write to history
+        try:
+            create_history_entry(CreateHistoryRequest(
+                profile_slug=slug,
+                profile_name=profile.name,
+                apply_mode="cmd",
+                playbook_path=None,
+                target_hosts=req.hosts,
+                modules_applied=module_names,
+                node_versions=node_versions,
+                status=status,
+                errors=all_errors or None,
+            ))
+        except Exception as he:
+            logger.warning("Failed to write apply history: %s", he)
 
     return StreamingResponse(
         _generate(),
