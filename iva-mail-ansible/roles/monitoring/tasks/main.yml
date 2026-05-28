@@ -17,6 +17,7 @@
 
 - name: Установить и настроить Graylog (MongoDB + OpenSearch + Graylog)
   ansible.builtin.include_tasks: graylog.yml
+  when: graylog_enabled | default(false) | bool
   tags:
     - monitoring
     - graylog

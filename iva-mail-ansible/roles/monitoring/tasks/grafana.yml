@@ -1,11 +1,21 @@
 ---
 # tasks/grafana.yml — установка Grafana из официального apt-репозитория
+# Если репозиторий недоступен по сети, поддерживается установка через dpkg (pre-downloaded .deb)
+
+- name: Проверить наличие исполняемого файла Grafana
+  ansible.builtin.stat:
+    path: /usr/sbin/grafana-server
+  register: grafana_binary
+  tags:
+    - monitoring
+    - grafana
 
 - name: Создать каталог для ключей APT
   ansible.builtin.file:
     path: /etc/apt/keyrings
     state: directory
     mode: "0755"
+  when: not grafana_binary.stat.exists
   tags:
     - monitoring
     - grafana
@@ -15,6 +25,10 @@
     url: https://apt.grafana.com/gpg.key
     dest: /etc/apt/keyrings/grafana.gpg
     mode: "0644"
+    force: no
+  when: not grafana_binary.stat.exists
+  register: grafana_gpg_result
+  failed_when: false
   tags:
     - monitoring
     - grafana
@@ -23,15 +37,42 @@
   ansible.builtin.apt_repository:
     repo: "deb [signed-by=/etc/apt/keyrings/grafana.gpg] https://apt.grafana.com stable main"
     state: present
-    update_cache: yes
+    update_cache: no
+  when:
+    - not grafana_binary.stat.exists
+    - grafana_gpg_result.status_code is defined
+    - grafana_gpg_result.status_code == 200 or (grafana_gpg_result.dest is defined and grafana_gpg_result.dest)
+  failed_when: false
   tags:
     - monitoring
     - grafana
 
-- name: Установить пакет Grafana
+- name: Установить пакет Grafana (apt)
   ansible.builtin.apt:
     name: grafana
     state: present
+    update_cache: yes
+  when: not grafana_binary.stat.exists
+  failed_when: false
+  register: grafana_apt_result
+  tags:
+    - monitoring
+    - grafana
+
+- name: Повторно проверить наличие Grafana после попытки apt-установки
+  ansible.builtin.stat:
+    path: /usr/sbin/grafana-server
+  register: grafana_binary_after
+  tags:
+    - monitoring
+    - grafana
+
+- name: Сообщить что Grafana не установлена (apt не удался, нет pre-downloaded .deb)
+  ansible.builtin.fail:
+    msg: >
+      Grafana не установлена. apt-install не удался, и /usr/sbin/grafana-server не найден.
+      Установите Grafana вручную через dpkg перед запуском роли, либо обеспечьте доступ к apt.grafana.com.
+  when: not grafana_binary_after.stat.exists
   tags:
     - monitoring
     - grafana

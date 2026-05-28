@@ -40,6 +40,9 @@ ivamail_exporter_port: 9118
 # HAProxy stats Prometheus endpoint
 haproxy_stats_port: 8404
 
+# Graylog (по умолчанию выключен — требует libssl1.1 которого нет в Ubuntu 22.04)
+graylog_enabled: false
+
 # Список хостов кластера (CSV, из extra_vars) — для prometheus.yml scrape targets
 backend_hosts: ""
 frontend_hosts: ""
