@@ -1,11 +1,19 @@
 ---
 # tasks/prometheus.yml — установка и настройка Prometheus
 
+- name: Проверить наличие исполняемого файла Prometheus
+  ansible.builtin.stat:
+    path: /usr/bin/prometheus
+  register: prometheus_binary
+  tags:
+    - monitoring
+    - prometheus
+
 - name: Установить пакет Prometheus из системного репозитория
   ansible.builtin.apt:
     name: prometheus
     state: present
-    update_cache: yes
+    update_cache: "{{ not prometheus_binary.stat.exists }}"
   tags:
     - monitoring
     - prometheus

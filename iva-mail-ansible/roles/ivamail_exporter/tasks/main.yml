@@ -30,6 +30,19 @@
   notify: restart ivamail_exporter
   tags: [monitoring, ivamail_exporter]
 
+- name: Материализовать переменные для env-файла (избежать рекурсии шаблонов в Ansible 2.10)
+  ansible.builtin.set_fact:
+    _ivamail_hosts: >-
+      {{ ((backend_hosts | default('') ~ ',' ~ (frontend_hosts | default('')))
+          | regex_replace(',+', ',')
+          | regex_replace('^,|,$', '')) }}
+    _ivamail_cmd_user: "{{ cmd_user | default('admin') }}"
+    _ivamail_cmd_password: "{{ cmd_password | default('') }}"
+    _ivamail_cmd_port: "{{ ivamail_cmd_port }}"
+    _ivamail_exporter_port: "{{ ivamail_exporter_port }}"
+    _ivamail_scrape_timeout: "{{ ivamail_scrape_timeout }}"
+  tags: [monitoring, ivamail_exporter]
+
 - name: Развернуть env-файл с credentials (не логировать)
   ansible.builtin.template:
     src: ivamail_exporter.env.j2

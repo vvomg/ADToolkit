@@ -207,22 +207,12 @@
   hosts: monitoring
   gather_facts: yes
 
-  vars:
-    # Объединяем бэкенды и фронтенды для IVA Mail exporter
-    ivamail_exporter_hosts: "{{ backend_hosts | default('') }},{{ frontend_hosts | default('') }}"
-    ivamail_cmd_user: "{{ cmd_user | default('admin') }}"
-    ivamail_cmd_password: "{{ cmd_password | default('') }}"
-
   roles:
     - role: monitoring
       tags:
         - monitoring
 
     - role: ivamail_exporter
-      vars:
-        ivamail_exporter_hosts: "{{ ivamail_exporter_hosts }}"
-        ivamail_cmd_user: "{{ ivamail_cmd_user }}"
-        ivamail_cmd_password: "{{ ivamail_cmd_password }}"
       tags:
         - monitoring
         - ivamail_exporter
@@ -254,6 +244,7 @@
         port:    9000
         timeout: 120
       delegate_to: localhost
+      when: graylog_enabled | default(false) | bool
       tags:
         - monitoring
         - healthcheck

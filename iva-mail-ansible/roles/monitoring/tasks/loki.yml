@@ -1,22 +1,35 @@
 ---
 # tasks/loki.yml — установка и настройка Grafana Loki
-# Loki устанавливается из официального apt-репозитория Grafana (тот же, что и для Grafana).
-# GPG-ключ и репозиторий уже добавлены задачей grafana.yml — повторная регистрация идемпотентна.
+# Приоритет: apt из официального репозитория.
+# Fallback: если apt недоступен — установка из pre-uploaded /tmp/loki.deb (dpkg).
+
+- name: Проверить наличие исполняемого файла Loki
+  ansible.builtin.stat:
+    path: /usr/bin/loki
+  register: loki_binary
+  tags:
+    - monitoring
+    - loki
 
 - name: Создать каталог для ключей APT (идемпотентно)
   ansible.builtin.file:
     path: /etc/apt/keyrings
     state: directory
     mode: "0755"
+  when: not loki_binary.stat.exists
   tags:
     - monitoring
     - loki
 
-- name: Скачать GPG-ключ Grafana (для Loki)
+- name: Скачать GPG-ключ Grafana (для Loki, пропустить если уже есть)
   ansible.builtin.get_url:
     url: https://apt.grafana.com/gpg.key
     dest: /etc/apt/keyrings/grafana.gpg
     mode: "0644"
+    force: no
+  when: not loki_binary.stat.exists
+  register: loki_gpg_result
+  failed_when: false
   tags:
     - monitoring
     - loki
@@ -25,19 +38,107 @@
   ansible.builtin.apt_repository:
     repo: "deb [signed-by=/etc/apt/keyrings/grafana.gpg] https://apt.grafana.com stable main"
     state: present
-    update_cache: yes
+    update_cache: no
+  when: not loki_binary.stat.exists
+  failed_when: false
   tags:
     - monitoring
     - loki
 
-- name: Установить пакет Loki
+- name: Установить пакет Loki (apt)
   ansible.builtin.apt:
     name: loki
     state: present
+    update_cache: yes
+  when: not loki_binary.stat.exists
+  failed_when: false
+  register: loki_apt_result
   tags:
     - monitoring
     - loki
     - install
+
+- name: Повторно проверить наличие Loki после попытки apt-установки
+  ansible.builtin.stat:
+    path: /usr/bin/loki
+  register: loki_binary_after_apt
+  tags:
+    - monitoring
+    - loki
+
+- name: Проверить наличие pre-uploaded /tmp/loki.deb (fallback)
+  ansible.builtin.stat:
+    path: /tmp/loki.deb
+  register: loki_deb_file
+  when: not loki_binary_after_apt.stat.exists
+  tags:
+    - monitoring
+    - loki
+
+- name: Установить Loki из /tmp/loki.deb (dpkg fallback)
+  ansible.builtin.apt:
+    deb: /tmp/loki.deb
+    state: present
+  when:
+    - not loki_binary_after_apt.stat.exists
+    - loki_deb_file is defined
+    - loki_deb_file.stat is defined
+    - loki_deb_file.stat.exists
+  tags:
+    - monitoring
+    - loki
+    - install
+
+- name: Финальная проверка наличия Loki
+  ansible.builtin.stat:
+    path: /usr/bin/loki
+  register: loki_binary_final
+  tags:
+    - monitoring
+    - loki
+
+- name: Завершить с ошибкой если Loki не установлен
+  ansible.builtin.fail:
+    msg: >
+      Loki не установлен. apt-install не удался и /tmp/loki.deb не найден.
+      Скачайте loki .deb из https://github.com/grafana/loki/releases и загрузите в /tmp/loki.deb,
+      либо обеспечьте доступ к apt.grafana.com.
+  when: not loki_binary_final.stat.exists
+  tags:
+    - monitoring
+    - loki
+
+- name: Создать системную группу loki (если не существует)
+  ansible.builtin.group:
+    name: loki
+    system: yes
+    state: present
+  tags:
+    - monitoring
+    - loki
+
+- name: Проверить существование пользователя loki
+  ansible.builtin.command: id loki
+  register: loki_user_check
+  failed_when: false
+  changed_when: false
+  tags:
+    - monitoring
+    - loki
+
+- name: Создать системного пользователя loki (если не существует)
+  ansible.builtin.user:
+    name: loki
+    group: loki
+    system: yes
+    shell: /usr/sbin/nologin
+    home: /var/lib/loki
+    create_home: no
+    state: present
+  when: loki_user_check.rc != 0
+  tags:
+    - monitoring
+    - loki
 
 - name: Создать каталог конфигурации Loki
   ansible.builtin.file:
