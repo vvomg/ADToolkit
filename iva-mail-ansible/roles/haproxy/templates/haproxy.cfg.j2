@@ -1,6 +1,6 @@
 # Сгенерировано Ansible — не редактировать вручную
 # Шаблон: roles/haproxy/templates/haproxy.cfg.j2
-{% set fe_list = haproxy_frontend_hosts | split(',') | map('trim') | select('match', '.+') | list %}
+{% set fe_list = (haproxy_frontend_hosts | default('')).split(',') | map('trim') | select('match', '.+') | list %}
 
 #------------------------------------------------------------------------------
 # GLOBAL

@@ -1,7 +1,7 @@
 # Сгенерировано Ansible — не редактировать вручную
-{% set backends  = backend_hosts  | default('') | split(',') | map('trim') | select('match', '.+') | list %}
-{% set frontends = frontend_hosts | default('') | split(',') | map('trim') | select('match', '.+') | list %}
-{% set haproxies = haproxy_hosts  | default('') | split(',') | map('trim') | select('match', '.+') | list %}
+{% set backends  = (backend_hosts  | default('')).split(',') | map('trim') | select('match', '.+') | list %}
+{% set frontends = (frontend_hosts | default('')).split(',') | map('trim') | select('match', '.+') | list %}
+{% set haproxies = (haproxy_hosts  | default('')).split(',') | map('trim') | select('match', '.+') | list %}
 {% set storages  = [storage_host    | default('') | trim] | select('match', '.+') | list %}
 {% set monitrs   = [monitoring_host | default('') | trim] | select('match', '.+') | list %}
 
