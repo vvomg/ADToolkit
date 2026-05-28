@@ -57,3 +57,7 @@
     - "grafana/dashboards/*.json"
   notify: restart grafana
   tags: [monitoring, grafana, provisioning, dashboards]
+
+- name: Перезапустить Grafana для применения provisioning (всегда при первом деплое)
+  ansible.builtin.meta: flush_handlers
+  tags: [monitoring, grafana, provisioning]

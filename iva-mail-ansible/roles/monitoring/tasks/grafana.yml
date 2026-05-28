@@ -90,6 +90,19 @@
     - monitoring
     - grafana
 
+- name: Принудительно установить пароль admin через grafana-cli (надёжнее ini)
+  ansible.builtin.command:
+    cmd: "grafana-cli admin reset-admin-password {{ grafana_admin_password }}"
+  no_log: true
+  register: grafana_pw_result
+  failed_when:
+    - grafana_pw_result.rc != 0
+    - "'Admin password changed successfully' not in grafana_pw_result.stdout"
+  changed_when: grafana_pw_result.rc == 0
+  tags:
+    - monitoring
+    - grafana
+
 - name: Включить и запустить сервис Grafana
   ansible.builtin.service:
     name: "{{ grafana_service }}"
