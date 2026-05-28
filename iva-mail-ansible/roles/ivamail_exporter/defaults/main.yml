@@ -1,0 +1,19 @@
+---
+# defaults/main.yml — ivamail_exporter role
+
+ivamail_exporter_port: 9118
+ivamail_exporter_user: prometheus
+ivamail_exporter_dir: /opt/ivamail-exporter
+ivamail_exporter_service: ivamail-exporter
+
+# Хосты IVA Mail для опроса (CSV, из extra_vars)
+# Объединяем бэкенды и фронтенды
+ivamail_exporter_hosts: "{{ backend_hosts | default('') }},{{ frontend_hosts | default('') }}"
+
+# CMD-протокол
+ivamail_cmd_port: 106
+ivamail_cmd_user: "{{ cmd_user | default('admin') }}"
+ivamail_cmd_password: "{{ cmd_password | default('') }}"
+
+# Таймаут опроса одной ноды (секунды)
+ivamail_scrape_timeout: 10

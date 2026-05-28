@@ -1,0 +1,66 @@
+---
+# tasks/main.yml — ivamail_exporter role
+# Разворачивает централизованный Prometheus exporter для метрик IVA Mail.
+# Экспортер запускается на хосте мониторинга и опрашивает все ноды по CMD-протоколу.
+
+- name: Создать системного пользователя для экспортера
+  ansible.builtin.user:
+    name: "{{ ivamail_exporter_user }}"
+    system: yes
+    shell: /usr/sbin/nologin
+    create_home: no
+  tags: [monitoring, ivamail_exporter]
+
+- name: Создать каталог экспортера
+  ansible.builtin.file:
+    path: "{{ ivamail_exporter_dir }}"
+    state: directory
+    owner: "{{ ivamail_exporter_user }}"
+    group: "{{ ivamail_exporter_user }}"
+    mode: "0750"
+  tags: [monitoring, ivamail_exporter]
+
+- name: Скопировать скрипт экспортера
+  ansible.builtin.copy:
+    src: ivamail_exporter.py
+    dest: "{{ ivamail_exporter_dir }}/ivamail_exporter.py"
+    owner: "{{ ivamail_exporter_user }}"
+    group: "{{ ivamail_exporter_user }}"
+    mode: "0750"
+  notify: restart ivamail_exporter
+  tags: [monitoring, ivamail_exporter]
+
+- name: Развернуть env-файл с credentials (не логировать)
+  ansible.builtin.template:
+    src: ivamail_exporter.env.j2
+    dest: "{{ ivamail_exporter_dir }}/.env"
+    owner: "{{ ivamail_exporter_user }}"
+    group: "{{ ivamail_exporter_user }}"
+    mode: "0600"
+  no_log: true
+  notify: restart ivamail_exporter
+  tags: [monitoring, ivamail_exporter]
+
+- name: Развернуть systemd unit для экспортера
+  ansible.builtin.template:
+    src: ivamail_exporter.service.j2
+    dest: "/etc/systemd/system/{{ ivamail_exporter_service }}.service"
+    mode: "0644"
+  notify:
+    - reload systemd
+    - restart ivamail_exporter
+  tags: [monitoring, ivamail_exporter]
+
+- name: Включить и запустить ivamail-exporter
+  ansible.builtin.service:
+    name: "{{ ivamail_exporter_service }}"
+    enabled: yes
+    state: started
+  tags: [monitoring, ivamail_exporter]
+
+- name: "Проверить доступность экспортера (порт {{ ivamail_exporter_port }})"
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ ivamail_exporter_port }}"
+    timeout: 30
+  tags: [monitoring, ivamail_exporter, healthcheck]

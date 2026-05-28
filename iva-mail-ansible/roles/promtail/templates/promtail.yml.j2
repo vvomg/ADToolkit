@@ -1,0 +1,55 @@
+# Конфигурация Promtail — сгенерировано Ansible, не редактировать вручную
+# Тейлит логи IVA Mail и отправляет в Loki на хост мониторинга
+
+server:
+  http_listen_port: {{ promtail_port }}
+  grpc_listen_port: 0
+  log_level: warn
+
+positions:
+  filename: {{ promtail_positions_file }}
+
+clients:
+  - url: {{ loki_push_url }}
+    # Повторные попытки при недоступности Loki
+    backoff_config:
+      min_period: 500ms
+      max_period: 5m
+      max_retries: 10
+
+scrape_configs:
+  # ── Логи IVA Mail из файлов /var/log/ivamail/*.log ──────────────────────────
+  - job_name: ivamail_files
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: ivamail
+          host: {{ inventory_hostname }}
+          role: {{ node_role }}
+          __path__: {{ ivamail_log_path }}/*.log
+
+  # ── Системный журнал (systemd journal) — только сервис ivamail ───────────────
+  - job_name: ivamail_journal
+    journal:
+      max_age: 12h
+      labels:
+        job: ivamail_journal
+        host: {{ inventory_hostname }}
+        role: {{ node_role }}
+    relabel_configs:
+      - source_labels: [__journal__systemd_unit]
+        target_label: unit
+      - source_labels: [__journal__priority]
+        target_label: priority
+      # Оставляем только записи сервиса ivamail
+      - source_labels: [__journal__systemd_unit]
+        regex: ivamail\.service
+        action: keep
+    pipeline_stages:
+      # Извлечь уровень лога из строки (ERROR|WARN|INFO|DEBUG)
+      - regex:
+          expression: '(?i)(error|warn|info|debug)'
+          source: message
+      - labels:
+          level:

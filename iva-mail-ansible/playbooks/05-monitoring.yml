@@ -1,19 +1,23 @@
 ---
 # =============================================================================
-# 05-monitoring.yml — Мониторинг кластера IVA Mail (Итерация 5)
+# 05-monitoring.yml — Мониторинг кластера IVA Mail
 # =============================================================================
 # Порядок плеев:
-#   Play 1 (localhost)    — динамический инвентарий из extra_vars
-#   Play 2 (all_ivamail)  — node_exporter на всех узлах кластера (параллельно)
-#   Play 3 (all_ivamail)  — rsyslog: пересылка логов IVA Mail в Graylog (параллельно)
-#   Play 4 (monitoring)   — полный стек мониторинга: Prometheus + Grafana + Graylog
+#   Play 1  (localhost)    — динамический инвентарий из extra_vars
+#   Play 2  (all_ivamail)  — node_exporter на всех узлах кластера (параллельно)
+#   Play 3  (all_ivamail)  — rsyslog: пересылка логов IVA Mail в Graylog (параллельно)
+#   Play 3b (all_ivamail)  — Promtail: агент сбора логов для Grafana Loki (параллельно)
+#   Play 4  (monitoring)   — полный стек: Prometheus + Grafana + Loki + ivamail_exporter
 #
 # Переменные окружения: SSH_KEY
-# Extra vars: backend_hosts, frontend_hosts, haproxy_hosts, storage_host, monitoring_host
+# Extra vars:
+#   backend_hosts, frontend_hosts, haproxy_hosts, storage_host, monitoring_host
+#   cmd_user, cmd_password  — credentials для IVA Mail CMD (для ivamail_exporter)
 #
 # Запуск напрямую:
 #   ansible-playbook playbooks/05-monitoring.yml \
-#     -e @tests/survey_vars.yml
+#     -e @tests/survey_vars.yml \
+#     -e "cmd_user=admin cmd_password=secret"
 # =============================================================================
 
 # -----------------------------------------------------------------------------
@@ -173,21 +177,55 @@
         state: restarted
 
 # -----------------------------------------------------------------------------
+# PLAY 3b: Установка Promtail на все узлы кластера (агент сбора логов для Loki)
+# -----------------------------------------------------------------------------
+# Promtail тейлит /var/log/ivamail/ и systemd journal, отправляет в Loki.
+# Запускается параллельно — ноды независимы.
+# -----------------------------------------------------------------------------
+- name: Установить Promtail на все узлы кластера IVA Mail
+  hosts: all_ivamail
+  gather_facts: yes
+
+  vars:
+    loki_push_url: "http://{{ monitoring_host | default('') }}:3100/loki/api/v1/push"
+
+  roles:
+    - role: promtail
+      tags:
+        - promtail
+        - monitoring
+
+# -----------------------------------------------------------------------------
 # PLAY 4: Установка полного стека мониторинга на узел мониторинга
 # -----------------------------------------------------------------------------
-# Роль monitoring разворачивает Prometheus, Grafana и Graylog.
-# После установки выполняются healthcheck-проверки доступности портов
-# с контроллера: Prometheus (9090), Grafana (3000), Graylog (9000).
+# Роль monitoring разворачивает Prometheus, Grafana, Loki, Graylog.
+# Роль ivamail_exporter разворачивает централизованный CMD-exporter.
+# После установки: healthcheck всех сервисов с контроллера.
 # Graylog требует больший таймаут (120 сек) — JVM стартует дольше.
 # -----------------------------------------------------------------------------
-- name: Установить стек мониторинга (Prometheus + Grafana + Graylog) на узел мониторинга
+- name: Установить стек мониторинга (Prometheus + Grafana + Loki + ivamail_exporter) на узел мониторинга
   hosts: monitoring
   gather_facts: yes
+
+  vars:
+    # Объединяем бэкенды и фронтенды для IVA Mail exporter
+    ivamail_exporter_hosts: "{{ backend_hosts | default('') }},{{ frontend_hosts | default('') }}"
+    ivamail_cmd_user: "{{ cmd_user | default('admin') }}"
+    ivamail_cmd_password: "{{ cmd_password | default('') }}"
 
   roles:
     - role: monitoring
       tags:
         - monitoring
+
+    - role: ivamail_exporter
+      vars:
+        ivamail_exporter_hosts: "{{ ivamail_exporter_hosts }}"
+        ivamail_cmd_user: "{{ ivamail_cmd_user }}"
+        ivamail_cmd_password: "{{ ivamail_cmd_password }}"
+      tags:
+        - monitoring
+        - ivamail_exporter
 
   post_tasks:
     - name: Проверить доступность Prometheus (порт 9090) с контроллера
@@ -218,4 +256,26 @@
       delegate_to: localhost
       tags:
         - monitoring
+        - healthcheck
+
+    - name: Проверить доступность Loki (порт 3100) с контроллера
+      ansible.builtin.wait_for:
+        host:    "{{ inventory_hostname }}"
+        port:    3100
+        timeout: 60
+      delegate_to: localhost
+      tags:
+        - monitoring
+        - loki
+        - healthcheck
+
+    - name: Проверить доступность IVA Mail Exporter (порт 9118) с контроллера
+      ansible.builtin.wait_for:
+        host:    "{{ inventory_hostname }}"
+        port:    9118
+        timeout: 30
+      delegate_to: localhost
+      tags:
+        - monitoring
+        - ivamail_exporter
         - healthcheck

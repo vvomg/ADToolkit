@@ -9,6 +9,14 @@ global:
   scrape_interval:     15s
   evaluation_interval: 15s
 
+# Правила алертинга (добавить *.yml в /etc/prometheus/rules/ для активации)
+rule_files: []
+  # - /etc/prometheus/rules/*.yml
+
+# Alertmanager (настроить при необходимости)
+alerting:
+  alertmanagers: []
+
 scrape_configs:
 {% if backends | length > 0 %}
   - job_name: 'ivamail-backends'
@@ -48,4 +56,27 @@ scrape_configs:
       - targets: [{% for h in monitrs %}'{{ h }}:{{ node_exporter_port }}'{% if not loop.last %}, {% endif %}{% endfor %}]
         labels:
           role: monitoring
+{% endif %}
+
+{% if monitrs | length > 0 %}
+  # Централизованный IVA Mail exporter — кастомные метрики через CMD-протокол
+  - job_name: 'ivamail-exporter'
+    scrape_interval: 30s
+    scrape_timeout: 25s
+    static_configs:
+      - targets: ['{{ monitoring_host }}:{{ ivamail_exporter_port }}']
+        labels:
+          component: ivamail_exporter
+{% endif %}
+
+{% if haproxies | length > 0 %}
+  # HAProxy Prometheus stats (порт {{ haproxy_stats_port }}, путь /metrics)
+  # Требует настройки stats в роли haproxy: frontend stats bind *:{{ haproxy_stats_port }}
+  - job_name: 'haproxy-stats'
+    scrape_interval: 15s
+    static_configs:
+      - targets: [{% for h in haproxies %}'{{ h }}:{{ haproxy_stats_port }}'{% if not loop.last %}, {% endif %}{% endfor %}]
+        labels:
+          role: haproxy
+          component: stats
 {% endif %}

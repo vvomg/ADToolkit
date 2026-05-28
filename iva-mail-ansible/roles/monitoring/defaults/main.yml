@@ -29,6 +29,17 @@ graylog_password_secret: "{{ lookup('env', 'GRAYLOG_PASSWORD_SECRET') | default(
 # security plugin отключён — runtime-аутентификация не применяется).
 opensearch_initial_admin_password: "{{ lookup('env', 'OPENSEARCH_INITIAL_ADMIN_PASSWORD') | default('ChangeMe_1234!', true) }}"
 
+# Loki
+loki_port: 3100
+loki_service: loki
+loki_config_dir: /etc/loki
+
+# IVA Mail Exporter (centralized on monitoring host)
+ivamail_exporter_port: 9118
+
+# HAProxy stats Prometheus endpoint
+haproxy_stats_port: 8404
+
 # Список хостов кластера (CSV, из extra_vars) — для prometheus.yml scrape targets
 backend_hosts: ""
 frontend_hosts: ""

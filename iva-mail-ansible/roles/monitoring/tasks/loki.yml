@@ -1,0 +1,100 @@
+---
+# tasks/loki.yml — установка и настройка Grafana Loki
+# Loki устанавливается из официального apt-репозитория Grafana (тот же, что и для Grafana).
+# GPG-ключ и репозиторий уже добавлены задачей grafana.yml — повторная регистрация идемпотентна.
+
+- name: Создать каталог для ключей APT (идемпотентно)
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+  tags:
+    - monitoring
+    - loki
+
+- name: Скачать GPG-ключ Grafana (для Loki)
+  ansible.builtin.get_url:
+    url: https://apt.grafana.com/gpg.key
+    dest: /etc/apt/keyrings/grafana.gpg
+    mode: "0644"
+  tags:
+    - monitoring
+    - loki
+
+- name: Добавить официальный репозиторий Grafana (для Loki)
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/grafana.gpg] https://apt.grafana.com stable main"
+    state: present
+    update_cache: yes
+  tags:
+    - monitoring
+    - loki
+
+- name: Установить пакет Loki
+  ansible.builtin.apt:
+    name: loki
+    state: present
+  tags:
+    - monitoring
+    - loki
+    - install
+
+- name: Создать каталог конфигурации Loki
+  ansible.builtin.file:
+    path: "{{ loki_config_dir }}"
+    state: directory
+    owner: loki
+    group: loki
+    mode: "0750"
+  tags:
+    - monitoring
+    - loki
+
+- name: Создать каталоги данных Loki
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: loki
+    group: loki
+    mode: "0750"
+  loop:
+    - /var/lib/loki
+    - /var/lib/loki/chunks
+    - /var/lib/loki/rules
+    - /var/lib/loki/compactor
+  tags:
+    - monitoring
+    - loki
+
+- name: Развернуть конфигурацию Loki из шаблона
+  ansible.builtin.template:
+    src: loki.yml.j2
+    dest: "{{ loki_config_dir }}/loki-local-config.yaml"
+    owner: loki
+    group: loki
+    mode: "0640"
+  notify: restart loki
+  tags:
+    - monitoring
+    - loki
+    - configure
+
+- name: Включить и запустить сервис Loki
+  ansible.builtin.service:
+    name: "{{ loki_service }}"
+    enabled: yes
+    state: started
+  tags:
+    - monitoring
+    - loki
+    - start
+
+- name: "Дождаться запуска Loki на порту {{ loki_port }}"
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ loki_port }}"
+    timeout: 60
+  tags:
+    - monitoring
+    - loki
+    - healthcheck

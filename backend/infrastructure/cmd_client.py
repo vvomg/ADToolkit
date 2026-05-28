@@ -612,6 +612,85 @@ class CMDClient:
             return await self.execute(f'ConnectionsList "{module}"')
         return await self.execute("ConnectionsList")
 
+    async def get_static_var(self, oid: str) -> CMDResponse:
+        """GetStaticVar "OID" — возвращает объект статической переменной IVA Mail.
+
+        OID имеет иерархический формат: "1", "1.101", "1.2.3" и т.д.
+        GetStaticVar "1" возвращает список доступных под-OID.
+        GetStaticVar "1.NNN" возвращает конкретное числовое значение или структуру.
+
+        Использование:
+            resp = await client.get_static_var("1")         # список под-OID
+            resp = await client.get_static_var("1.101")     # конкретное значение
+        """
+        return await self.execute_with_body(f'GetStaticVar "{oid}"')
+
+    async def enumerate_static_vars(self, root_oid: str = "1") -> list[dict]:
+        """Рекурсивно перечисляет все доступные StaticVar OID начиная с root_oid.
+
+        Возвращает список словарей:
+            [{"oid": "1.101", "value": 42.0, "raw": "42"}, ...]
+
+        Ограничение: максимум 3 уровня рекурсии от root_oid и 50 дочерних OID
+        за один уровень — чтобы не перегружать сервер.
+
+        Пример использования:
+            vars = await client.enumerate_static_vars("1")
+            for v in vars:
+                print(v["oid"], "=", v["value"])
+        """
+        results: list[dict] = []
+        max_depth = root_oid.count(".") + 3
+
+        async def _recurse(oid: str, depth: int) -> None:
+            if depth > max_depth:
+                return
+            try:
+                resp = await self.get_static_var(oid)
+            except Exception as exc:
+                logger.debug("GetStaticVar %s failed: %s", oid, exc)
+                return
+            if not resp.ok:
+                return
+            raw = (resp.text or "").strip()
+            if not raw:
+                return
+
+            # Попытка распарсить как JSON-структуру
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, list):
+                    # Список дочерних OID-суффиксов — рекурсируем
+                    for sub in parsed[:50]:
+                        child_oid = f"{oid}.{sub}"
+                        await _recurse(child_oid, depth + 1)
+                    return
+                if isinstance(parsed, dict):
+                    for k, v in list(parsed.items())[:50]:
+                        try:
+                            num = float(v)
+                            results.append({"oid": f"{oid}.{k}", "value": num, "raw": str(v)})
+                        except (ValueError, TypeError):
+                            pass
+                    return
+                # Скалярное JSON-значение
+                try:
+                    results.append({"oid": oid, "value": float(parsed), "raw": raw})
+                except (ValueError, TypeError):
+                    pass
+                return
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+            # Не JSON — попытка прочитать как число
+            try:
+                results.append({"oid": oid, "value": float(raw), "raw": raw})
+            except (ValueError, TypeError):
+                pass
+
+        await _recurse(root_oid, 0)
+        return results
+
     async def logs_list(self, log_type: Optional[str] = None) -> CMDResponse:
         """LogsList ("log_type") — список лог-файлов. Типы: Mailbox, Auth, Settings."""
         if log_type:

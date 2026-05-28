@@ -67,3 +67,10 @@
     - monitoring
     - grafana
     - healthcheck
+
+- name: Настроить автопровижининг Grafana (datasources + dashboards)
+  ansible.builtin.include_tasks: grafana_provision.yml
+  tags:
+    - monitoring
+    - grafana
+    - provisioning

@@ -1,0 +1,13 @@
+# Grafana datasource: Loki — сгенерировано Ansible, не редактировать вручную
+apiVersion: 1
+datasources:
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://localhost:{{ loki_port }}
+    isDefault: false
+    editable: false
+    jsonData:
+      maxLines: 1000
+      derivedFields: []

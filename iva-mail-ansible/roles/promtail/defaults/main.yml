@@ -1,0 +1,21 @@
+---
+# defaults/main.yml — promtail role
+
+promtail_port: 9080
+promtail_service: promtail
+promtail_config_dir: /etc/promtail
+promtail_positions_file: /var/lib/promtail/positions.yaml
+
+# URL для отправки логов в Loki (задаётся через extra_vars как monitoring_host)
+loki_push_url: "http://{{ monitoring_host | default('localhost') }}:3100/loki/api/v1/push"
+
+# Путь к логам IVA Mail
+ivamail_log_path: /var/log/ivamail
+
+# Роль ноды — определяется динамически из группы инвентаря
+node_role: >-
+  {{ 'backend'  if inventory_hostname in groups.get('backends', [])  else
+     'frontend' if inventory_hostname in groups.get('frontends', []) else
+     'haproxy'  if inventory_hostname in groups.get('haproxy', [])   else
+     'storage'  if inventory_hostname in groups.get('storage', [])   else
+     'unknown' }}

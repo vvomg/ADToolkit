@@ -1,0 +1,59 @@
+---
+# tasks/grafana_provision.yml — автопровижининг Grafana
+# Настраивает datasources (Prometheus, Loki) и провайдер дашбордов через файловый провижининг.
+# Grafana читает /etc/grafana/provisioning/ при старте и каждые 60 секунд.
+
+- name: Создать каталоги провижининга Grafana
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: grafana
+    group: grafana
+    mode: "0755"
+  loop:
+    - /etc/grafana/provisioning/datasources
+    - /etc/grafana/provisioning/dashboards
+    - /var/lib/grafana/dashboards
+  tags: [monitoring, grafana, provisioning]
+
+- name: Развернуть datasource Prometheus
+  ansible.builtin.template:
+    src: grafana/datasources/prometheus.yml.j2
+    dest: /etc/grafana/provisioning/datasources/prometheus.yml
+    owner: grafana
+    group: grafana
+    mode: "0640"
+  notify: restart grafana
+  tags: [monitoring, grafana, provisioning]
+
+- name: Развернуть datasource Loki
+  ansible.builtin.template:
+    src: grafana/datasources/loki.yml.j2
+    dest: /etc/grafana/provisioning/datasources/loki.yml
+    owner: grafana
+    group: grafana
+    mode: "0640"
+  notify: restart grafana
+  tags: [monitoring, grafana, provisioning]
+
+- name: Развернуть провайдер дашбордов IVA Mail
+  ansible.builtin.template:
+    src: grafana/dashboards/provider.yml.j2
+    dest: /etc/grafana/provisioning/dashboards/ivamail.yml
+    owner: grafana
+    group: grafana
+    mode: "0640"
+  notify: restart grafana
+  tags: [monitoring, grafana, provisioning]
+
+- name: Скопировать JSON-дашборды IVA Mail в /var/lib/grafana/dashboards/
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: /var/lib/grafana/dashboards/
+    owner: grafana
+    group: grafana
+    mode: "0644"
+  with_fileglob:
+    - "grafana/dashboards/*.json"
+  notify: restart grafana
+  tags: [monitoring, grafana, provisioning, dashboards]

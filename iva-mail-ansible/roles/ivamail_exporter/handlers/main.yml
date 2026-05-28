@@ -1,0 +1,9 @@
+---
+- name: reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: yes
+
+- name: restart ivamail_exporter
+  ansible.builtin.service:
+    name: "{{ ivamail_exporter_service }}"
+    state: restarted

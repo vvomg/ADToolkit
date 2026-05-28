@@ -1,0 +1,6 @@
+---
+galaxy_info:
+  author: adtoolkit
+  description: Promtail log shipping agent for IVA Mail nodes
+  min_ansible_version: "2.12"
+dependencies: []

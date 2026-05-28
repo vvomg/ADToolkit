@@ -1,0 +1,6 @@
+---
+galaxy_info:
+  author: adtoolkit
+  description: Centralized Prometheus exporter for IVA Mail cluster metrics via CMD protocol
+  min_ansible_version: "2.12"
+dependencies: []

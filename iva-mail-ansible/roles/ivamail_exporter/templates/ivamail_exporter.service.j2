@@ -1,0 +1,19 @@
+[Unit]
+Description=IVA Mail Prometheus Exporter
+Documentation=https://github.com/adtoolkit
+After=network.target
+
+[Service]
+Type=simple
+User={{ ivamail_exporter_user }}
+Group={{ ivamail_exporter_user }}
+WorkingDirectory={{ ivamail_exporter_dir }}
+EnvironmentFile={{ ivamail_exporter_dir }}/.env
+ExecStart=/usr/bin/python3 {{ ivamail_exporter_dir }}/ivamail_exporter.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

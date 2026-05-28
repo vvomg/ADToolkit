@@ -20,3 +20,9 @@
   tags:
     - monitoring
     - graylog
+
+- name: Установить и настроить Loki
+  ansible.builtin.include_tasks: loki.yml
+  tags:
+    - monitoring
+    - loki

@@ -1,0 +1,12 @@
+# Grafana dashboard provider — сгенерировано Ansible, не редактировать вручную
+apiVersion: 1
+providers:
+  - name: IVA Mail Dashboards
+    orgId: 1
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 60
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false
