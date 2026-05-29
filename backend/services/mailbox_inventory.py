@@ -1947,21 +1947,50 @@ def rights_summary_text(rights: Any) -> str:
 def access_edges_html(edges: Any, title: str, empty_label: str) -> str:
     if not edges:
         return ""
-    items = []
+
+    EFFECT_DENY = "deny"
+
+    rows = []
     for edge in edges:
-        counterparty = edge.get("to") or edge.get("from") or ""
-        resource = edge.get("resource", "")
-        rights = rights_summary_text(edge.get("rights"))
-        items.append(
-            "<li>"
-            f"<b>{html.escape(str(counterparty))}</b>: "
-            f"{html.escape(str(resource))}"
-            f"{' - ' + html.escape(rights) if rights else ''}"
-            "</li>"
+        counterparty = html.escape(str(edge.get("to") or edge.get("from") or ""))
+        resource     = html.escape(str(edge.get("resource", "")))
+        effect       = edge.get("effect", "")
+        rights_obj   = edge.get("rights") or {}
+        raw          = html.escape(str(rights_obj.get("raw", "")))
+        categories   = [
+            html.escape(RIGHT_CATEGORY_LABELS.get(k, k))
+            for k, v in rights_obj.get("categories", {}).items()
+            if v
+        ]
+        perms = html.escape(", ".join(categories)) if categories else '<span class="empty">—</span>'
+
+        # Deny-effect → красный акцент
+        deny_style = ' style="color:var(--red);"' if effect == EFFECT_DENY else ""
+        deny_mark  = ' <span style="color:var(--red);font-size:10px;">(deny)</span>' if effect == EFFECT_DENY else ""
+
+        rows.append(
+            f"<tr{deny_style}>"
+            f'<td><b>{counterparty}</b>{deny_mark}</td>'
+            f"<td>{resource}</td>"
+            f"<td>{perms}</td>"
+            f'<td><code>{raw}</code></td>'
+            f"</tr>"
         )
-    if not items:
-        return f"<b>{html.escape(title)}</b>: <span class=\"empty\">{html.escape(empty_label)}</span>"
-    return f"<b>{html.escape(title)}</b><ul class=\"compact-list\">{''.join(items)}</ul>"
+
+    if not rows:
+        return f'<b>{html.escape(title)}</b>: <span class="empty">{html.escape(empty_label)}</span>'
+
+    thead = (
+        "<thead><tr>"
+        "<th>Кому</th><th>Ресурс</th><th>Права</th><th>raw</th>"
+        "</tr></thead>"
+    )
+    return (
+        f'<b>{html.escape(title)}</b>'
+        f'<div class="edge-table-wrap">'
+        f'<table class="edge-table">{thead}<tbody>{"".join(rows)}</tbody></table>'
+        f'</div>'
+    )
 
 
 def rule_summary(rule: Dict[str, Any]) -> str:
@@ -2533,6 +2562,30 @@ def write_html(path: str, data: Dict[str, Any], title: str) -> None:
     table.settings-table th, table.settings-table td {{ border:1px solid var(--s1); padding:3px 8px; text-align:left; overflow-wrap:normal; word-break:normal; }}
     table.settings-table th {{ background:var(--mantle); font-weight:600; cursor:default; text-transform:none; letter-spacing:0; color:var(--sub0); }}
     table.settings-table th::after {{ content:none; }}
+    /* ── Access edges table ── */
+    .edge-table-wrap {{ margin:6px 0 0; overflow-x:auto; border-radius:8px; border:1px solid var(--s1); }}
+    table.edge-table {{
+      width:100%; border-collapse:collapse; font-size:12.5px;
+      table-layout:auto; border-radius:8px; overflow:hidden;
+    }}
+    table.edge-table th {{
+      background:var(--mantle); padding:6px 10px; text-align:left;
+      color:var(--sub0); font-weight:500; font-size:11px;
+      text-transform:uppercase; letter-spacing:.05em;
+      white-space:nowrap; border-bottom:1px solid var(--s1);
+      cursor:default;
+    }}
+    table.edge-table th::after {{ content:none; }}
+    table.edge-table td {{
+      padding:6px 10px; border-bottom:1px solid var(--s1);
+      vertical-align:middle; overflow-wrap:anywhere;
+    }}
+    table.edge-table tr:last-child td {{ border-bottom:none; }}
+    table.edge-table tbody tr:hover td {{ background:rgba(69,71,90,.25); }}
+    table.edge-table td:first-child {{ white-space:nowrap; font-weight:500; color:var(--text); min-width:120px; }}
+    table.edge-table td:nth-child(2) {{ color:var(--sub0); }}
+    table.edge-table td:nth-child(3) {{ color:var(--text); }}
+    table.edge-table td:last-child {{ white-space:nowrap; }}
     /* ── Scrollbar ── */
     ::-webkit-scrollbar {{ width:6px; height:6px; }}
     ::-webkit-scrollbar-track {{ background:var(--mantle); }}
