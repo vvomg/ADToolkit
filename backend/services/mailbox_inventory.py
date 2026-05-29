@@ -2345,143 +2345,256 @@ def write_html(path: str, data: Dict[str, Any], title: str) -> None:
         errors_html = f'<details class="errors"><summary>Ошибки: {len(errors)}</summary><ul>{error_items}</ul></details>'
 
     document = f"""<!doctype html>
-<html lang="en">
+<html lang="ru">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{html.escape(title)}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     :root {{
-      color-scheme: light;
-      --border:#d8dee4;
-      --muted:#57606a;
-      --bg:#f6f8fa;
-      --panel:#ffffff;
-      --text:#24292f;
-      --accent:#0969da;
-      --accent-bg:#ddf4ff;
+      color-scheme: dark;
+      --base:    #1e1e2e;
+      --mantle:  #181825;
+      --crust:   #11111b;
+      --s0:      #313244;
+      --s1:      #45475a;
+      --s2:      #585b70;
+      --ov0:     #6c7086;
+      --ov1:     #7f849c;
+      --sub0:    #a6adc8;
+      --sub1:    #bac2de;
+      --text:    #cdd6f4;
+      --blue:    #89b4fa;
+      --green:   #a6e3a1;
+      --red:     #f38ba8;
+      --yellow:  #f9e2af;
+      --mauve:   #cba6f7;
+      --teal:    #94e2d5;
+      --peach:   #fab387;
+      --sky:     #89dceb;
     }}
-    * {{ box-sizing:border-box; }}
-    body {{ margin:0; font-family:Arial, sans-serif; color:var(--text); background:#ffffff; }}
-    header {{ padding:24px 32px; background:var(--bg); border-bottom:1px solid var(--border); }}
-    h1 {{ margin:0 0 10px; font-size:24px; }}
-    .summary {{ display:flex; gap:16px; flex-wrap:wrap; color:var(--muted); }}
-    main {{ padding:20px 32px 32px; }}
+    *, *::before, *::after {{ box-sizing:border-box; }}
+    body {{
+      margin:0; background:var(--base); color:var(--text);
+      font-family:'Inter', system-ui, sans-serif; font-size:14px; line-height:1.5;
+    }}
+    /* ── Header ── */
+    header {{
+      padding:20px 28px 18px; background:var(--mantle);
+      border-bottom:1px solid var(--s1);
+      display:flex; align-items:center; justify-content:space-between; gap:20px; flex-wrap:wrap;
+    }}
+    .header-left h1 {{
+      margin:0 0 6px; font-size:18px; font-weight:600; color:var(--text);
+    }}
+    .stat-chips {{ display:flex; gap:8px; flex-wrap:wrap; }}
+    .stat-chip {{
+      display:inline-flex; align-items:center; gap:5px;
+      padding:3px 10px; border-radius:999px; font-size:12px; font-weight:500;
+      border:1px solid var(--s1); background:var(--s0); color:var(--sub0);
+    }}
+    .stat-chip b {{ color:var(--text); }}
+    /* ── Main layout ── */
+    main {{ padding:18px 28px 40px; }}
+    /* ── Toolbar ── */
     .toolbar {{
-      display:flex; gap:12px; flex-wrap:wrap; align-items:end;
-      padding:14px; margin:0 0 16px; border:1px solid var(--border); border-radius:8px; background:var(--panel);
+      display:flex; gap:10px; flex-wrap:wrap; align-items:end;
+      padding:14px 16px; margin:0 0 16px;
+      border:1px solid var(--s1); border-radius:12px; background:var(--s0);
     }}
-    .control {{ display:flex; flex-direction:column; gap:5px; min-width:190px; }}
-    .control label {{ color:var(--muted); font-size:12px; }}
-    input, select, button {{
-      min-height:34px; border:1px solid var(--border); border-radius:6px; background:white;
-      padding:6px 10px; font:inherit; color:var(--text);
+    .control {{ display:flex; flex-direction:column; gap:4px; min-width:180px; }}
+    .control > label:first-child {{ color:var(--sub0); font-size:11px; font-weight:500; text-transform:uppercase; letter-spacing:.04em; }}
+    .chk-group {{ display:flex; flex-direction:column; gap:3px; }}
+    .chk-group label {{
+      display:flex; align-items:center; gap:6px; font-size:12px; color:var(--sub0);
+      cursor:pointer; padding:2px 0;
     }}
-    button {{ cursor:pointer; }}
-    button:hover, select:hover, input:focus, select:focus {{ border-color:var(--accent); outline:none; }}
-    details.domain, details.account, details.errors {{ border:1px solid var(--border); border-radius:8px; margin:0 0 12px; background:var(--panel); overflow:hidden; }}
-    details.domain > summary, details.account > summary, details.errors > summary {{
-      cursor:pointer; padding:12px 14px; display:flex; justify-content:space-between;
-      gap:16px; align-items:center; list-style:none;
+    .chk-group label:hover {{ color:var(--text); }}
+    input[type="search"], input[type="text"], select {{
+      min-height:32px; border:1px solid var(--s1); border-radius:8px;
+      background:var(--s0); padding:5px 10px; font:inherit; font-size:13px;
+      color:var(--text); outline:none; transition:border-color .15s;
+      -webkit-appearance:none;
     }}
-    details.domain > summary::-webkit-details-marker, details.account > summary::-webkit-details-marker, details.errors > summary::-webkit-details-marker {{ display:none; }}
-    details.inline-setting {{ margin: 2px 0 2px 0px; }}
-    details.inline-setting > summary {{ cursor: pointer; color: var(--text); }}
-    .summary-title {{ display:flex; align-items:center; gap:8px; font-weight:600; }}
+    input[type="search"]::placeholder {{ color:var(--ov0); }}
+    input[type="search"]:focus, select:focus {{ border-color:var(--blue); box-shadow:0 0 0 2px rgba(137,180,250,.15); }}
+    select option {{ background:var(--s0); color:var(--text); }}
+    input[type="checkbox"] {{
+      appearance:none; -webkit-appearance:none;
+      width:14px; height:14px; border:1px solid var(--s2); border-radius:4px;
+      background:var(--s0); cursor:pointer; flex:0 0 auto; transition:background .12s, border-color .12s;
+    }}
+    input[type="checkbox"]:checked {{
+      background:var(--blue); border-color:var(--blue);
+      background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 10 8' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 4l3 3 5-6' stroke='%23181825' stroke-width='1.8' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat:no-repeat; background-position:center; background-size:10px;
+    }}
+    .btn {{
+      display:inline-flex; align-items:center; gap:5px;
+      min-height:32px; padding:5px 12px; border:1px solid var(--s1); border-radius:8px;
+      background:var(--s0); color:var(--sub0); font:inherit; font-size:12px;
+      cursor:pointer; transition:border-color .15s, color .15s, background .15s; white-space:nowrap;
+    }}
+    .btn:hover {{ border-color:var(--blue); color:var(--blue); background:rgba(137,180,250,.07); }}
+    .btn-group {{ display:flex; gap:6px; align-items:end; padding-bottom:1px; }}
+    /* ── Domain / Account cards ── */
+    details.domain, details.account, details.errors {{
+      border:1px solid var(--s1); border-radius:12px; margin:0 0 10px;
+      background:var(--s0); overflow:hidden;
+    }}
+    details.domain > summary,
+    details.account > summary,
+    details.errors > summary {{
+      cursor:pointer; padding:10px 14px;
+      display:flex; justify-content:space-between; gap:16px; align-items:center;
+      list-style:none; transition:background .12s;
+    }}
+    details.domain > summary::-webkit-details-marker,
+    details.account > summary::-webkit-details-marker,
+    details.errors > summary::-webkit-details-marker {{ display:none; }}
+    details.domain > summary {{ background:var(--mantle); }}
+    details.domain > summary:hover {{ background:var(--crust); }}
+    details.account > summary {{ background:var(--s0); }}
+    details.account > summary:hover {{ background:var(--s1); }}
+    details.account[data-has-special="true"] > summary {{
+      border-left:3px solid var(--blue);
+    }}
+    details.account[open] > summary {{ background:rgba(137,180,250,.06); }}
+    details.inline-setting {{ margin:2px 0; }}
+    details.inline-setting > summary {{ cursor:pointer; color:var(--sub0); }}
+    .summary-title {{ display:flex; align-items:center; gap:8px; font-weight:600; font-size:13px; }}
     .chevron {{
-      width:18px; height:18px; border:1px solid var(--border); border-radius:4px;
-      display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto; background:var(--bg);
+      width:18px; height:18px; border:1px solid var(--s2); border-radius:5px;
+      display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto;
+      background:var(--s1); color:var(--blue); font-size:13px; line-height:1; font-weight:700;
+      transition:background .12s;
     }}
-    .chevron::before {{ content:"+"; color:var(--accent); font-weight:700; line-height:1; }}
-    details[open] > summary .chevron::before {{ content:"-"; }}
-    summary small {{ color:var(--muted); }}
-    .domain > summary {{ background:#f6f8fa; }}
-    .domain-body {{ padding:12px 12px 0; border-top:1px solid var(--border); background:#fbfbfc; }}
-    .account {{ margin:0 0 12px; }}
-    .account > summary {{ background:white; }}
-    .account[data-has-special="true"] > summary {{ border-left:4px solid var(--accent); }}
-    .account[open] > summary {{ background:var(--accent-bg); }}
-    .account-meta {{ padding:10px 14px; border-top:1px solid var(--border); background:#fbfbfc; color:var(--muted); font-size:13px; }}
-    .domain-meta {{ margin:0 0 12px; border:1px solid var(--border); border-radius:6px; }}
-    .tag {{ display:inline-block; margin-left:6px; padding:1px 5px; border:1px solid var(--border); border-radius:999px; color:var(--muted); font-size:11px; white-space:nowrap; }}
-    .compact-list {{ margin:6px 0 0 18px; padding:0; }}
-    .compact-list li {{ margin:3px 0; }}
-    .muted {{ color:var(--muted); }}
-    .raw-rights {{ color:var(--muted); font-size:11px; margin-left:6px; }}
+    .chevron::before {{ content:"+"; }}
+    details[open] > summary .chevron::before {{ content:"−"; }}
+    summary small {{ color:var(--ov1); font-size:11.5px; font-weight:400; }}
+    .domain-body {{ padding:10px 10px 0; border-top:1px solid var(--s1); background:var(--base); }}
+    .account {{ margin:0 0 10px; }}
+    .account-meta {{
+      padding:10px 14px; border-top:1px solid var(--s1);
+      background:var(--mantle); color:var(--sub0); font-size:12.5px;
+    }}
+    .domain-meta {{ margin:0 0 10px; border:1px solid var(--s1); border-radius:8px; background:var(--mantle); }}
+    /* ── Tag/badge ── */
+    .tag {{
+      display:inline-block; margin-left:6px; padding:1px 6px;
+      border:1px solid var(--s2); border-radius:999px; color:var(--ov1);
+      font-size:10.5px; white-space:nowrap;
+    }}
+    /* ── Lists ── */
+    .compact-list {{ margin:5px 0 0 16px; padding:0; }}
+    .compact-list li {{ margin:2px 0; }}
+    .muted {{ color:var(--ov1); }}
+    .raw-rights {{ color:var(--ov0); font-size:11px; margin-left:6px; }}
     .acl-list {{ display:grid; gap:4px; min-width:260px; }}
     .acl-entry {{ border:0; border-radius:0; margin:0; background:transparent; overflow:visible; }}
-    .acl-entry > summary {{ display:block; padding:0; cursor:pointer; }}
-    .acl-entry > ul {{ margin:4px 0 0 16px; padding:0; color:var(--muted); }}
+    .acl-entry > summary {{ display:block; padding:0; cursor:pointer; color:var(--sub0); }}
+    .acl-entry > ul {{ margin:4px 0 0 14px; padding:0; color:var(--ov1); }}
     .acl-entry li {{ margin:2px 0; }}
-    code {{ padding:1px 4px; border:1px solid var(--border); border-radius:4px; background:var(--bg); }}
-    table {{ width:100%; border-collapse:collapse; border-top:1px solid var(--border); table-layout:auto; }}
-    th, td {{ padding:8px 10px; border-bottom:1px solid var(--border); text-align:left; vertical-align:top; font-size:13px; }}
-    th {{ background:var(--bg); cursor:pointer; user-select:none; white-space:nowrap; position:sticky; top:0; }}
-    th::after {{ content:""; margin-left:6px; color:var(--accent); }}
-    th[data-dir="asc"]::after {{ content:"^"; }}
-    th[data-dir="desc"]::after {{ content:"v"; }}
+    /* ── Code ── */
+    code {{
+      font-family:'JetBrains Mono', monospace; font-size:11.5px;
+      padding:1px 5px; border:1px solid var(--s2); border-radius:4px; background:var(--mantle);
+      color:var(--sky);
+    }}
+    /* ── Table ── */
+    table {{ width:100%; border-collapse:collapse; border-top:1px solid var(--s1); table-layout:auto; }}
+    th, td {{ padding:7px 10px; border-bottom:1px solid var(--s1); text-align:left; vertical-align:top; font-size:12.5px; }}
+    th {{
+      background:var(--mantle); cursor:pointer; user-select:none;
+      white-space:nowrap; position:sticky; top:0; color:var(--sub0);
+      font-weight:500; font-size:11.5px; text-transform:uppercase; letter-spacing:.04em;
+    }}
+    th::after {{ content:""; margin-left:5px; color:var(--blue); }}
+    th[data-dir="asc"]::after  {{ content:"↑"; }}
+    th[data-dir="desc"]::after {{ content:"↓"; }}
     td {{ overflow-wrap:anywhere; }}
-    tr:hover td {{ background:#f6f8fa; }}
-    .errors summary {{ color:#cf222e; }}
-    .empty {{ color:var(--muted); font-style:italic; }}
+    tr:hover td {{ background:rgba(69,71,90,.3); }}
+    /* ── Error ── */
+    .errors summary {{ color:var(--red); }}
+    /* ── Util ── */
+    .empty {{ color:var(--ov0); font-style:italic; }}
     .hidden {{ display:none !important; }}
-    .settings-block {{ margin:4px 0 0; padding:8px; background:var(--bg); border:1px solid var(--border); border-radius:6px; white-space:pre-wrap; word-break:break-all; font-family:monospace; font-size:12px; }}
-    table.settings-table {{ width:max-content; border-collapse:collapse; margin:0; border:1px solid var(--border); border-radius:6px; font-size:12px; overflow:hidden; }}
-    table.settings-table th, table.settings-table td {{ border:1px solid var(--border); padding:3px 8px; text-align:left; overflow-wrap:normal; word-break:normal; }}
-    table.settings-table th {{ background:var(--bg); font-weight:600; cursor:default; }}
+    .settings-block {{
+      margin:4px 0 0; padding:8px; background:var(--mantle);
+      border:1px solid var(--s1); border-radius:6px;
+      white-space:pre-wrap; word-break:break-all;
+      font-family:'JetBrains Mono', monospace; font-size:11.5px; color:var(--sub0);
+    }}
+    table.settings-table {{ width:max-content; border-collapse:collapse; margin:0; border:1px solid var(--s1); border-radius:6px; font-size:12px; overflow:hidden; }}
+    table.settings-table th, table.settings-table td {{ border:1px solid var(--s1); padding:3px 8px; text-align:left; overflow-wrap:normal; word-break:normal; }}
+    table.settings-table th {{ background:var(--mantle); font-weight:600; cursor:default; text-transform:none; letter-spacing:0; color:var(--sub0); }}
     table.settings-table th::after {{ content:none; }}
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar {{ width:6px; height:6px; }}
+    ::-webkit-scrollbar-track {{ background:var(--mantle); }}
+    ::-webkit-scrollbar-thumb {{ background:var(--s2); border-radius:3px; }}
+    ::-webkit-scrollbar-thumb:hover {{ background:var(--ov0); }}
   </style>
 </head>
 <body>
   <header>
-    <h1>{html.escape(title)}</h1>
-    <div class="summary">
-      <span>Домены: {len(domains)}</span>
-      <span>Аккаунты: {sum(len(accounts) for accounts in domains.values())}</span>
-      <span>Папки: {len(records)}</span>
-      <span>Ошибки: {len(errors)}</span>
+    <div class="header-left">
+      <h1>{html.escape(title)}</h1>
+      <div class="stat-chips">
+        <span class="stat-chip">Домены: <b>{len(domains)}</b></span>
+        <span class="stat-chip">Аккаунты: <b>{sum(len(acc) for acc in domains.values())}</b></span>
+        <span class="stat-chip">Папки: <b>{len(records)}</b></span>
+        {'<span class="stat-chip" style="color:var(--red);border-color:var(--red)">Ошибки: <b>' + str(len(errors)) + '</b></span>' if errors else ''}
+      </div>
     </div>
   </header>
   <main>
     <section class="toolbar" aria-label="Report controls">
-      <div class="control">
-        <label for="accountFilter">Поиск по префиксу аккаунта</label>
+      <div class="control" style="flex:1; min-width:200px;">
+        <label>Поиск аккаунта</label>
         <input id="accountFilter" type="search" placeholder="например ivan">
       </div>
-      <fieldset class="control" style="border:none; padding:0; margin:0; display:flex; flex-direction:column; gap:5px;">
-        <label style="font-weight:600; margin-bottom:2px;">Типы объектов</label>
-        <label><input id="typeAccount" type="checkbox" checked> Аккаунты</label>
-        <label><input id="typeGroup" type="checkbox" checked> Группы</label>
-        <label><input id="typeResource" type="checkbox" checked> Ресурсы</label>
-        <label><input id="typeForwarder" type="checkbox" checked> Переадресаторы</label>
-      </fieldset>
-      <fieldset class="control" style="border:none; padding:0; margin:0; display:flex; flex-direction:column; gap:5px;">
-        <label><input id="aclFilter" type="checkbox"> Только с ACL</label>
-        <label><input id="rulesFilter" type="checkbox"> Только с правилами</label>
-        <label><input id="settingsFilter" type="checkbox"> Только с измененными настройками</label>
-        <label><input id="adminFilter" type="checkbox"> Только администраторы</label>
-      </fieldset>
       <div class="control">
-        <label for="domainSort">Сортировка доменов</label>
+        <label>Типы объектов</label>
+        <div class="chk-group">
+          <label><input id="typeAccount"   type="checkbox" checked> Аккаунты</label>
+          <label><input id="typeGroup"     type="checkbox" checked> Группы</label>
+          <label><input id="typeResource"  type="checkbox" checked> Ресурсы</label>
+          <label><input id="typeForwarder" type="checkbox" checked> Переадресаторы</label>
+        </div>
+      </div>
+      <div class="control">
+        <label>Фильтры</label>
+        <div class="chk-group">
+          <label><input id="aclFilter"      type="checkbox"> Только с ACL</label>
+          <label><input id="rulesFilter"    type="checkbox"> Только с правилами</label>
+          <label><input id="settingsFilter" type="checkbox"> Только с настройками</label>
+          <label><input id="adminFilter"    type="checkbox"> Только администраторы</label>
+        </div>
+      </div>
+      <div class="control">
+        <label>Сортировка доменов</label>
         <select id="domainSort">
-          <option value="name-asc">По имени (A-Z)</option>
-          <option value="name-desc">По имени (Z-A)</option>
-          <option value="size-desc">По размеру (убывание)</option>
-          <option value="size-asc">По размеру (возрастание)</option>
+          <option value="name-asc">По имени A→Z</option>
+          <option value="name-desc">По имени Z→A</option>
+          <option value="size-desc">По размеру ↓</option>
+          <option value="size-asc">По размеру ↑</option>
         </select>
       </div>
       <div class="control">
-        <label for="accountSort">Сортировка аккаунтов</label>
+        <label>Сортировка аккаунтов</label>
         <select id="accountSort">
-          <option value="name-asc">По имени (A-Z)</option>
-          <option value="name-desc">По имени (Z-A)</option>
-          <option value="size-desc">По размеру (убывание)</option>
-          <option value="size-asc">По размеру (возрастание)</option>
+          <option value="name-asc">По имени A→Z</option>
+          <option value="name-desc">По имени Z→A</option>
+          <option value="size-desc">По размеру ↓</option>
+          <option value="size-asc">По размеру ↑</option>
         </select>
       </div>
-      <div class="control" style="flex-direction:row; align-items:end; gap:8px;">
-        <button type="button" id="expandAll">Развернуть все</button>
-        <button type="button" id="collapseAll">Свернуть все</button>
+      <div class="btn-group">
+        <button type="button" id="expandAll"   class="btn">▶ Развернуть</button>
+        <button type="button" id="collapseAll" class="btn">▼ Свернуть</button>
       </div>
     </section>
     {errors_html}
