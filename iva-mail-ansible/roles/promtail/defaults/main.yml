@@ -10,7 +10,7 @@ promtail_positions_file: /var/lib/promtail/positions.yaml
 loki_push_url: "http://{{ monitoring_host | default('localhost') }}:3100/loki/api/v1/push"
 
 # Путь к логам IVA Mail
-ivamail_log_path: /var/log/ivamail
+ivamail_log_path: /var/ivamail/Logs
 
 # Роль ноды — определяется динамически из группы инвентаря
 node_role: >-

@@ -1,33 +1,31 @@
 ---
-# tasks/main.yml — promtail role
-# Устанавливает Promtail на ноду кластера IVA Mail.
-# Promtail тейлит логи /var/log/ivamail/ и отправляет в Loki на хосте мониторинга.
+# tasks/main.yml — promtail role (binary install, no apt.grafana.com required)
+# Копирует бинарник с Ansible-контроллера на кластерные ноды.
+# Бинарник должен быть предварительно скачан на контроллер:
+#   curl -fsSL -o /tmp/promtail-linux-amd64.zip \
+#     https://github.com/grafana/loki/releases/download/v2.9.8/promtail-linux-amd64.zip
+#   unzip /tmp/promtail-linux-amd64.zip -d /tmp/
 
-- name: Создать каталог для ключей APT
-  ansible.builtin.file:
-    path: /etc/apt/keyrings
-    state: directory
-    mode: "0755"
-  tags: [promtail, monitoring]
-
-- name: Скачать GPG-ключ Grafana (для Promtail)
-  ansible.builtin.get_url:
-    url: https://apt.grafana.com/gpg.key
-    dest: /etc/apt/keyrings/grafana.gpg
-    mode: "0644"
-  tags: [promtail, monitoring]
-
-- name: Добавить apt-репозиторий Grafana (для Promtail)
-  ansible.builtin.apt_repository:
-    repo: "deb [signed-by=/etc/apt/keyrings/grafana.gpg] https://apt.grafana.com stable main"
-    state: present
-    update_cache: yes
-  tags: [promtail, monitoring]
-
-- name: Установить пакет Promtail
-  ansible.builtin.apt:
+- name: Создать системного пользователя promtail (с доступом к journal)
+  ansible.builtin.user:
     name: promtail
-    state: present
+    system: yes
+    shell: /usr/sbin/nologin
+    create_home: no
+    comment: "Promtail log shipper"
+    groups: "adm,systemd-journal,ivamail"
+    append: yes
+  notify: restart promtail
+  tags: [promtail, monitoring]
+
+- name: Установить бинарник promtail с контроллера
+  ansible.builtin.copy:
+    src: /tmp/promtail-linux-amd64
+    dest: /usr/local/bin/promtail
+    owner: root
+    group: root
+    mode: "0755"
+  notify: restart promtail
   tags: [promtail, monitoring, install]
 
 - name: Создать каталог для файла позиций Promtail
@@ -43,23 +41,59 @@
   ansible.builtin.file:
     path: "{{ promtail_config_dir }}"
     state: directory
+    owner: root
+    group: root
     mode: "0755"
   tags: [promtail, monitoring]
 
-- name: Создать каталог логов IVA Mail (если не существует)
+- name: Убедиться что каталог логов IVA Mail читаем для promtail
   ansible.builtin.file:
     path: "{{ ivamail_log_path }}"
     state: directory
     mode: "0755"
+  # Каталог создаётся IVA Mail при установке, просто гарантируем права
+  ignore_errors: yes
   tags: [promtail, monitoring]
 
 - name: Развернуть конфигурацию Promtail
   ansible.builtin.template:
     src: promtail.yml.j2
     dest: "{{ promtail_config_dir }}/promtail.yml"
+    owner: root
+    group: root
     mode: "0644"
   notify: restart promtail
   tags: [promtail, monitoring, configure]
+
+- name: Создать systemd unit для Promtail
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/promtail.service
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Promtail — агент сбора логов для Grafana Loki
+      Documentation=https://grafana.com/docs/loki/latest/clients/promtail/
+      After=network.target
+
+      [Service]
+      Type=simple
+      User=promtail
+      Group=promtail
+      ExecStart=/usr/local/bin/promtail -config.file={{ promtail_config_dir }}/promtail.yml
+      Restart=on-failure
+      RestartSec=5s
+
+      [Install]
+      WantedBy=multi-user.target
+  notify: restart promtail
+  tags: [promtail, monitoring]
+
+- name: Перезагрузить systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: yes
+  tags: [promtail, monitoring]
 
 - name: Включить и запустить Promtail
   ansible.builtin.service:
@@ -67,3 +101,11 @@
     enabled: yes
     state: started
   tags: [promtail, monitoring, start]
+
+- name: Проверить что Promtail запустился (порт {{ promtail_port }})
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ promtail_port }}"
+    timeout: 30
+    state: started
+  tags: [promtail, monitoring, healthcheck]

@@ -1,8 +1,10 @@
 {
   "__inputs": [],
   "__requires": [],
-  "annotations": {"list": []},
-  "description": "Логи кластера IVA Mail из Grafana Loki (Promtail)",
+  "annotations": {
+    "list": []
+  },
+  "description": "\u041b\u043e\u0433\u0438 \u043a\u043b\u0430\u0441\u0442\u0435\u0440\u0430 IVA Mail \u0438\u0437 Grafana Loki (Promtail)",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -10,115 +12,210 @@
   "links": [],
   "panels": [
     {
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "thresholds"},
-          "thresholds": {"mode": "absolute", "steps": [
-            {"color": "green", "value": null},
-            {"color": "yellow", "value": 1},
-            {"color": "red", "value": 10}
-          ]},
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          },
           "unit": "short"
         },
         "overrides": []
       },
-      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
       "id": 1,
       "options": {
         "colorMode": "background",
         "graphMode": "area",
         "justifyMode": "center",
         "orientation": "auto",
-        "reduceOptions": {"calcs": ["sum"], "fields": "", "values": false},
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "",
+          "values": false
+        },
         "textMode": "auto"
       },
       "targets": [
         {
-          "datasource": {"type": "loki", "uid": "loki"},
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
           "expr": "sum(count_over_time({job=\"ivamail\",host=~\"$host\"} |= \"ERROR\" [1h]))",
           "instant": false,
-          "legendFormat": "Ошибок за час",
+          "legendFormat": "\u041e\u0448\u0438\u0431\u043e\u043a \u0437\u0430 \u0447\u0430\u0441",
           "refId": "A"
         }
       ],
-      "title": "Ошибок за последний час",
+      "title": "\u041e\u0448\u0438\u0431\u043e\u043a \u0437\u0430 \u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0439 \u0447\u0430\u0441",
       "type": "stat"
     },
     {
-      "datasource": {"type": "loki", "uid": "loki"},
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "thresholds"},
-          "thresholds": {"mode": "absolute", "steps": [
-            {"color": "green", "value": null},
-            {"color": "yellow", "value": 1},
-            {"color": "red", "value": 5}
-          ]},
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          },
           "unit": "short"
         },
         "overrides": []
       },
-      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
       "id": 2,
       "options": {
         "colorMode": "background",
         "graphMode": "area",
         "justifyMode": "center",
         "orientation": "auto",
-        "reduceOptions": {"calcs": ["sum"], "fields": "", "values": false},
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "",
+          "values": false
+        },
         "textMode": "auto"
       },
       "targets": [
         {
-          "datasource": {"type": "loki", "uid": "loki"},
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
           "expr": "sum(count_over_time({job=\"ivamail\",host=~\"$host\"} |= \"WARN\" [1h]))",
-          "legendFormat": "Предупреждений за час",
+          "legendFormat": "\u041f\u0440\u0435\u0434\u0443\u043f\u0440\u0435\u0436\u0434\u0435\u043d\u0438\u0439 \u0437\u0430 \u0447\u0430\u0441",
           "refId": "A"
         }
       ],
-      "title": "Предупреждений за последний час",
+      "title": "\u041f\u0440\u0435\u0434\u0443\u043f\u0440\u0435\u0436\u0434\u0435\u043d\u0438\u0439 \u0437\u0430 \u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0439 \u0447\u0430\u0441",
       "type": "stat"
     },
     {
-      "datasource": {"type": "loki", "uid": "loki"},
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "palette-classic"},
-          "custom": {"lineWidth": 2},
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2
+          },
           "unit": "reqps"
         },
         "overrides": []
       },
-      "gridPos": {"h": 6, "w": 24, "x": 0, "y": 4},
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
       "id": 3,
-      "options": {"tooltip": {"mode": "multi"}},
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
       "targets": [
         {
-          "datasource": {"type": "loki", "uid": "loki"},
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
           "expr": "sum by (host) (rate({job=\"ivamail\",host=~\"$host\"}[5m]))",
-          "legendFormat": "{{host}} — всего",
+          "legendFormat": "{{host}} \u2014 \u0432\u0441\u0435\u0433\u043e",
           "refId": "A"
         },
         {
-          "datasource": {"type": "loki", "uid": "loki"},
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
           "expr": "sum by (host) (rate({job=\"ivamail\",host=~\"$host\"} |= \"ERROR\" [5m]))",
-          "legendFormat": "{{host}} — ERROR",
+          "legendFormat": "{{host}} \u2014 ERROR",
           "refId": "B"
         },
         {
-          "datasource": {"type": "loki", "uid": "loki"},
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
           "expr": "sum by (host) (rate({job=\"ivamail\",host=~\"$host\"} |= \"WARN\" [5m]))",
-          "legendFormat": "{{host}} — WARN",
+          "legendFormat": "{{host}} \u2014 WARN",
           "refId": "C"
         }
       ],
-      "title": "Частота логов (строк/сек)",
+      "title": "\u0427\u0430\u0441\u0442\u043e\u0442\u0430 \u043b\u043e\u0433\u043e\u0432 (\u0441\u0442\u0440\u043e\u043a/\u0441\u0435\u043a)",
       "type": "timeseries"
     },
     {
-      "datasource": {"type": "loki", "uid": "loki"},
-      "gridPos": {"h": 16, "w": 24, "x": 0, "y": 10},
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 16,
+        "w": 24,
+        "x": 0,
+        "y": 10
+      },
       "id": 4,
       "options": {
         "dedupStrategy": "none",
@@ -132,18 +229,29 @@
       },
       "targets": [
         {
-          "datasource": {"type": "loki", "uid": "loki"},
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
           "expr": "{job=\"ivamail\",host=~\"$host\"} |= \"$search\"",
           "legendFormat": "",
           "refId": "A"
         }
       ],
-      "title": "Логи IVA Mail",
+      "title": "\u041b\u043e\u0433\u0438 IVA Mail",
       "type": "logs"
     },
     {
-      "datasource": {"type": "loki", "uid": "loki"},
-      "gridPos": {"h": 12, "w": 24, "x": 0, "y": 26},
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 26
+      },
       "id": 5,
       "options": {
         "dedupStrategy": "none",
@@ -157,25 +265,43 @@
       },
       "targets": [
         {
-          "datasource": {"type": "loki", "uid": "loki"},
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
           "expr": "{job=\"ivamail\",host=~\"$host\"} |= \"ERROR\"",
           "legendFormat": "",
           "refId": "A"
         }
       ],
-      "title": "Ошибки IVA Mail (ERROR)",
+      "title": "\u041e\u0448\u0438\u0431\u043a\u0438 IVA Mail (ERROR)",
       "type": "logs"
     }
   ],
   "refresh": "30s",
   "schemaVersion": 36,
   "style": "dark",
-  "tags": ["ivamail", "logs", "loki"],
+  "tags": [
+    "ivamail",
+    "logs",
+    "loki"
+  ],
   "templating": {
     "list": [
       {
-        "current": {},
-        "datasource": {"type": "loki", "uid": "loki"},
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
         "definition": "label_values({job=\"ivamail\"}, host)",
         "hide": 0,
         "includeAll": true,
@@ -188,23 +314,30 @@
         "regex": "",
         "sort": 1,
         "type": "query",
-        "label": "Хост"
+        "label": "\u0425\u043e\u0441\u0442"
       },
       {
-        "current": {"selected": false, "text": "", "value": ""},
+        "current": {
+          "selected": false,
+          "text": "",
+          "value": ""
+        },
         "hide": 0,
         "name": "search",
         "options": [],
         "query": "",
         "type": "textbox",
-        "label": "Поиск"
+        "label": "\u041f\u043e\u0438\u0441\u043a"
       }
     ]
   },
-  "time": {"from": "now-3h", "to": "now"},
+  "time": {
+    "from": "now-3h",
+    "to": "now"
+  },
   "timepicker": {},
   "timezone": "browser",
-  "title": "IVA Mail — Логи",
+  "title": "IVA Mail \u2014 \u041b\u043e\u0433\u0438",
   "uid": "ivamail-logs",
   "version": 1
 }

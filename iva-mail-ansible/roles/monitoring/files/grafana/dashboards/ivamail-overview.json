@@ -1,8 +1,10 @@
 {
   "__inputs": [],
   "__requires": [],
-  "annotations": {"list": []},
-  "description": "Обзор состояния кластера IVA Mail: системные метрики и статус нод",
+  "annotations": {
+    "list": []
+  },
+  "description": "\u041e\u0431\u0437\u043e\u0440 \u0441\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u044f \u043a\u043b\u0430\u0441\u0442\u0435\u0440\u0430 IVA Mail: \u0441\u0438\u0441\u0442\u0435\u043c\u043d\u044b\u0435 \u043c\u0435\u0442\u0440\u0438\u043a\u0438 \u0438 \u0441\u0442\u0430\u0442\u0443\u0441 \u043d\u043e\u0434",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -10,167 +12,312 @@
   "links": [],
   "panels": [
     {
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "thresholds"},
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              {"color": "red", "value": null},
-              {"color": "green", "value": 1}
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
             ]
           },
           "mappings": [
-            {"options": {"0": {"text": "DOWN"}, "1": {"text": "UP"}}, "type": "value"}
+            {
+              "options": {
+                "0": {
+                  "text": "DOWN"
+                },
+                "1": {
+                  "text": "UP"
+                }
+              },
+              "type": "value"
+            }
           ]
         },
         "overrides": []
       },
-      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
       "id": 1,
       "options": {
         "colorMode": "background",
         "graphMode": "none",
         "justifyMode": "center",
         "orientation": "auto",
-        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
         "textMode": "auto"
       },
       "targets": [
         {
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "ivamail_up{host=~\"$host\"}",
           "instant": true,
           "legendFormat": "{{host}}",
           "refId": "A"
         }
       ],
-      "title": "Статус нод",
+      "title": "\u0421\u0442\u0430\u0442\u0443\u0441 \u043d\u043e\u0434",
       "type": "stat"
     },
     {
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "thresholds"},
-          "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]},
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
           "unit": "none"
         },
         "overrides": []
       },
-      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
       "id": 2,
       "options": {
         "colorMode": "value",
         "graphMode": "none",
         "justifyMode": "center",
         "orientation": "auto",
-        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
         "textMode": "value_and_name"
       },
       "targets": [
         {
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "ivamail_info{host=~\"$host\"}",
           "instant": true,
           "legendFormat": "{{host}} v{{version}}",
           "refId": "A"
         }
       ],
-      "title": "Версия IVA Mail",
+      "title": "\u0412\u0435\u0440\u0441\u0438\u044f IVA Mail",
       "type": "stat"
     },
     {
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "thresholds"},
-          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
           "unit": "short"
         },
         "overrides": []
       },
-      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
       "id": 3,
       "options": {
         "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "center",
         "orientation": "auto",
-        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
         "textMode": "auto"
       },
       "targets": [
         {
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "ivamail_accounts_total{host=~\"$host\"}",
           "instant": true,
           "legendFormat": "{{host}}",
           "refId": "A"
         }
       ],
-      "title": "Всего аккаунтов",
+      "title": "\u0412\u0441\u0435\u0433\u043e \u0430\u043a\u043a\u0430\u0443\u043d\u0442\u043e\u0432",
       "type": "stat"
     },
     {
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "thresholds"},
-          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
           "unit": "s"
         },
         "overrides": []
       },
-      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
       "id": 4,
       "options": {
         "colorMode": "value",
         "graphMode": "none",
         "justifyMode": "center",
         "orientation": "auto",
-        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
         "textMode": "auto"
       },
       "targets": [
         {
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "ivamail_uptime_seconds{host=~\"$host\"}",
           "instant": true,
           "legendFormat": "{{host}}",
           "refId": "A"
         }
       ],
-      "title": "Аптайм",
+      "title": "\u0410\u043f\u0442\u0430\u0439\u043c",
       "type": "stat"
     },
     {
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "palette-classic"},
-          "custom": {"lineWidth": 1, "fillOpacity": 10},
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10
+          },
           "unit": "percent",
           "min": 0,
           "max": 100,
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              {"color": "green", "value": null},
-              {"color": "yellow", "value": 70},
-              {"color": "red", "value": 90}
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 70
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
             ]
           }
         },
         "overrides": []
       },
-      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 4
+      },
       "id": 5,
-      "options": {"tooltip": {"mode": "multi"}},
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
       "targets": [
         {
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "100 - (avg by (instance) (irate(node_cpu_seconds_total{mode=\"idle\",instance=~\"$host:.*\"}[5m])) * 100)",
           "legendFormat": "{{instance}}",
           "refId": "A"
@@ -180,23 +327,43 @@
       "type": "timeseries"
     },
     {
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "palette-classic"},
-          "custom": {"lineWidth": 1, "fillOpacity": 10},
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10
+          },
           "unit": "percent",
           "min": 0,
           "max": 100
         },
         "overrides": []
       },
-      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 4
+      },
       "id": 6,
-      "options": {"tooltip": {"mode": "multi"}},
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
       "targets": [
         {
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "(1 - node_memory_MemAvailable_bytes{instance=~\"$host:.*\"} / node_memory_MemTotal_bytes{instance=~\"$host:.*\"}) * 100",
           "legendFormat": "{{instance}}",
           "refId": "A"
@@ -206,27 +373,50 @@
       "type": "timeseries"
     },
     {
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "palette-classic"},
-          "custom": {"lineWidth": 1, "fillOpacity": 5},
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 5
+          },
           "unit": "Bps"
         },
         "overrides": []
       },
-      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 12
+      },
       "id": 7,
-      "options": {"tooltip": {"mode": "multi"}},
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
       "targets": [
         {
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "irate(node_network_receive_bytes_total{instance=~\"$host:.*\",device!=\"lo\"}[5m])",
           "legendFormat": "{{instance}} rx {{device}}",
           "refId": "A"
         },
         {
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "-irate(node_network_transmit_bytes_total{instance=~\"$host:.*\",device!=\"lo\"}[5m])",
           "legendFormat": "{{instance}} tx {{device}}",
           "refId": "B"
@@ -236,78 +426,168 @@
       "type": "timeseries"
     },
     {
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "palette-classic"},
-          "custom": {"lineWidth": 1},
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 1
+          },
           "unit": "short"
         },
         "overrides": []
       },
-      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 12
+      },
       "id": 8,
-      "options": {"tooltip": {"mode": "multi"}},
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
       "targets": [
         {
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "ivamail_connections_total{host=~\"$host\"}",
           "legendFormat": "{{host}} / {{module}}",
           "refId": "A"
         }
       ],
-      "title": "Активные соединения IVA Mail",
+      "title": "\u0410\u043a\u0442\u0438\u0432\u043d\u044b\u0435 \u0441\u043e\u0435\u0434\u0438\u043d\u0435\u043d\u0438\u044f IVA Mail",
       "type": "timeseries"
     },
     {
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "thresholds"},
-          "custom": {"align": "auto"},
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto"
+          },
           "thresholds": {
             "mode": "absolute",
-            "steps": [{"color": "green", "value": null}, {"color": "red", "value": 0.5}]
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.5
+              }
+            ]
           },
           "mappings": [
-            {"options": {"0": {"color": "green", "text": "loaded"}, "": {"color": "red", "text": "—"}}, "type": "value"}
+            {
+              "options": {
+                "0": {
+                  "color": "green",
+                  "text": "loaded"
+                },
+                "": {
+                  "color": "red",
+                  "text": "\u2014"
+                }
+              },
+              "type": "value"
+            }
           ]
         },
         "overrides": []
       },
-      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 20},
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 20
+      },
       "id": 9,
       "options": {
-        "footer": {"show": false},
+        "footer": {
+          "show": false
+        },
         "showHeader": true,
-        "sortBy": [{"desc": false, "displayName": "module"}]
+        "sortBy": [
+          {
+            "desc": false,
+            "displayName": "module"
+          }
+        ]
       },
       "targets": [
         {
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "ivamail_module_up{host=~\"$host\"}",
           "instant": true,
-          "legendFormat": "{{host}} — {{module}}",
+          "legendFormat": "{{host}} \u2014 {{module}}",
           "refId": "A"
         }
       ],
-      "title": "Загруженные модули",
+      "title": "\u0417\u0430\u0433\u0440\u0443\u0436\u0435\u043d\u043d\u044b\u0435 \u043c\u043e\u0434\u0443\u043b\u0438",
       "type": "table",
       "transformations": [
-        {"id": "labelsToFields", "options": {"mode": "columns"}},
-        {"id": "organize", "options": {"excludeByName": {"Time": true, "__name__": true, "job": true}}}
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "job": true
+            }
+          }
+        }
       ]
     }
   ],
   "refresh": "30s",
   "schemaVersion": 36,
   "style": "dark",
-  "tags": ["ivamail", "overview"],
+  "tags": [
+    "ivamail",
+    "overview"
+  ],
   "templating": {
     "list": [
       {
-        "current": {},
-        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
         "definition": "label_values(ivamail_up, host)",
         "hide": 0,
         "includeAll": true,
@@ -315,19 +595,25 @@
         "multi": true,
         "name": "host",
         "options": [],
-        "query": {"query": "label_values(ivamail_up, host)", "refId": "StandardVariableQuery"},
+        "query": {
+          "query": "label_values(ivamail_up, host)",
+          "refId": "StandardVariableQuery"
+        },
         "refresh": 2,
         "regex": "",
         "sort": 1,
         "type": "query",
-        "label": "Хост"
+        "label": "\u0425\u043e\u0441\u0442"
       }
     ]
   },
-  "time": {"from": "now-1h", "to": "now"},
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
   "timepicker": {},
   "timezone": "browser",
-  "title": "IVA Mail — Обзор кластера",
+  "title": "IVA Mail \u2014 \u041e\u0431\u0437\u043e\u0440 \u043a\u043b\u0430\u0441\u0442\u0435\u0440\u0430",
   "uid": "ivamail-overview",
   "version": 1
 }
