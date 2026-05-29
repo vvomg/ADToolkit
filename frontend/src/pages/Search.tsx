@@ -127,7 +127,7 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <div className="bg-surface0 border border-surface1 rounded-xl overflow-hidden">
+    <div className="w-full bg-surface0 border border-surface1 rounded-xl overflow-hidden">
       <button
         onClick={onToggle}
         className="w-full flex items-center justify-between px-5 py-3 hover:bg-surface1/30 transition-colors"
@@ -287,7 +287,7 @@ export function Search() {
   // ── Render ──
 
   return (
-    <div className="p-6 space-y-5">
+    <div className="p-6 space-y-5 min-w-[720px]">
 
       {/* Header */}
       <div className="flex items-center justify-between">

@@ -2376,6 +2376,7 @@ def write_html(path: str, data: Dict[str, Any], title: str) -> None:
       --sky:     #89dceb;
     }}
     *, *::before, *::after {{ box-sizing:border-box; }}
+    html {{ min-width:900px; }}
     body {{
       margin:0; background:var(--base); color:var(--text);
       font-family:'Inter', system-ui, sans-serif; font-size:14px; line-height:1.5;
@@ -2383,7 +2384,7 @@ def write_html(path: str, data: Dict[str, Any], title: str) -> None:
     /* ── Header ── */
     header {{
       padding:20px 28px 18px; background:var(--mantle);
-      border-bottom:1px solid var(--s1);
+      border-bottom:1px solid var(--s1); min-width:900px;
       display:flex; align-items:center; justify-content:space-between; gap:20px; flex-wrap:wrap;
     }}
     .header-left h1 {{
@@ -2397,12 +2398,13 @@ def write_html(path: str, data: Dict[str, Any], title: str) -> None:
     }}
     .stat-chip b {{ color:var(--text); }}
     /* ── Main layout ── */
-    main {{ padding:18px 28px 40px; }}
+    main {{ padding:18px 28px 40px; min-width:900px; }}
     /* ── Toolbar ── */
     .toolbar {{
       display:flex; gap:10px; flex-wrap:wrap; align-items:end;
       padding:14px 16px; margin:0 0 16px;
       border:1px solid var(--s1); border-radius:12px; background:var(--s0);
+      width:100%;
     }}
     .control {{ display:flex; flex-direction:column; gap:4px; min-width:180px; }}
     .control > label:first-child {{ color:var(--sub0); font-size:11px; font-weight:500; text-transform:uppercase; letter-spacing:.04em; }}
@@ -2442,7 +2444,7 @@ def write_html(path: str, data: Dict[str, Any], title: str) -> None:
     /* ── Domain / Account cards ── */
     details.domain, details.account, details.errors {{
       border:1px solid var(--s1); border-radius:12px; margin:0 0 10px;
-      background:var(--s0); overflow:hidden;
+      background:var(--s0); overflow:hidden; width:100%;
     }}
     details.domain > summary,
     details.account > summary,
