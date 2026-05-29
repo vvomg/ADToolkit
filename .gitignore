@@ -12,3 +12,6 @@ deploy-logs/*.log
 .tmp/
 *.db
 *.sqlite3
+
+*.rar
+*.7z
