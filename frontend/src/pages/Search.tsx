@@ -34,6 +34,16 @@ interface InventoryConfig {
   max_mailboxes_per_account: number | null;
 }
 
+// Нода кластера из /api/monitor/nodes
+interface ClusterNode {
+  id: number;
+  ip: string;
+  display_name: string | null;
+  hostname: string | null;
+  node_type: string;
+  cmd_user: string;
+}
+
 interface ScanListItem {
   scan_id: string;
   started_at: string;
@@ -165,6 +175,9 @@ export function Search() {
   const [reportScan, setReportScan] = useState<ScanListItem | null>(null);
   const reportRef = useRef<HTMLDivElement>(null);
 
+  // Cluster nodes
+  const [clusterNodes, setClusterNodes] = useState<ClusterNode[]>([]);
+
   // Section visibility
   const [openConn, setOpenConn] = useState(true);
   const [openScope, setOpenScope] = useState(true);
@@ -211,6 +224,14 @@ export function Search() {
   }, [fetchScans]);
 
   useEffect(() => { fetchScans(); }, [fetchScans]);
+
+  // Load cluster nodes once on mount
+  useEffect(() => {
+    fetch("/api/monitor/nodes")
+      .then(r => r.ok ? r.json() : [])
+      .then((data: ClusterNode[]) => setClusterNodes(data))
+      .catch(() => {});
+  }, []);
 
   // Poll running scan every 3s
   useEffect(() => {
@@ -316,6 +337,51 @@ export function Search() {
       {/* ── Section 1: Connection ── */}
       <Section open={openConn} onToggle={() => setOpenConn(v => !v)}
         icon={Server} iconColor="text-blue" title="Подключение">
+
+        {/* Node picker */}
+        {clusterNodes.length > 0 && (
+          <div className="space-y-1.5">
+            <p className="text-xs text-subtext">Ноды кластера</p>
+            <div className="flex flex-wrap gap-2">
+              {clusterNodes.map(node => {
+                const isSelected = cfg.host === node.ip;
+                const label = node.display_name || node.hostname || node.ip;
+                const typeColor: Record<string, string> = {
+                  ivamail_backend:  "text-blue   border-blue/40   bg-blue/5",
+                  ivamail_frontend: "text-mauve  border-mauve/40  bg-mauve/5",
+                  haproxy:          "text-peach  border-peach/40  bg-peach/5",
+                  nfs:              "text-teal   border-teal/40   bg-teal/5",
+                };
+                const color = typeColor[node.node_type] ?? "text-overlay1 border-surface2 bg-surface1/30";
+                const selectedCls = isSelected
+                  ? "ring-1 ring-blue opacity-100"
+                  : "opacity-70 hover:opacity-100";
+                return (
+                  <button
+                    key={node.id}
+                    type="button"
+                    onClick={() => {
+                      update("host", node.ip);
+                      if (!cfg.user) update("user", node.cmd_user);
+                    }}
+                    title={`${node.ip} (${node.node_type})${node.cmd_user ? " · user: " + node.cmd_user : ""}`}
+                    className={[
+                      "flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium",
+                      "transition-all cursor-pointer select-none",
+                      color, selectedCls,
+                    ].join(" ")}
+                  >
+                    <span className="font-mono">{node.ip}</span>
+                    {label !== node.ip && (
+                      <span className="opacity-60">{label}</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-4">
           <Field label="CMD Хост">
             <input type="text" value={cfg.host} onChange={e => update("host", e.target.value)}
