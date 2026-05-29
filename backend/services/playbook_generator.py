@@ -236,6 +236,7 @@ def generate_apply_playbook(
     mode: str = "full",
     include_objects: bool = False,
     diff_data: dict[str, Any] | None = None,
+    profile_modules: dict[str, Any] | None = None,
     cmd_client_path: str = "scripts/cmd_client.py",
     cmd_port: int = 106,
     cmd_timeout: int = 30,
@@ -250,6 +251,8 @@ def generate_apply_playbook(
         include_objects:  Включать ли задачи для объектов доменов
         diff_data:        Для mode="diff": {ip: {resource: {key: {old, new}}}}
                           resource = "module_SMTP" | "domain_example.com" | "object_admin@example.com"
+        profile_modules:  Опционально: {module_name: {key: val}} — если передан, диск не читается,
+                          задачи строятся напрямую из этого словаря (используется for profile→playbook).
         cmd_client_path:  Путь к cmd_client.py (относительно ansible-проекта)
         cmd_port:         Порт CMD-сервера IVA Mail
         cmd_timeout:      Таймаут CMD-команды в секундах
@@ -293,98 +296,109 @@ def generate_apply_playbook(
 
     all_tasks: list[str] = []
 
-    for ip in hosts:
-        ip_dir = store_root / ip
-        if not ip_dir.is_dir():
-            logger.warning("Директория для ноды %s не найдена: %s", ip, ip_dir)
-            continue
-
-        # --- Модули ---
-        modules_path = ip_dir / "modules"
-        if modules_path.is_dir():
-            for yml_file in sorted(modules_path.glob("*.yml")):
-                module_name = yml_file.stem
-                config = _load_yaml(yml_file)
-                if not config:
+    # If profile_modules provided, build tasks directly without reading disk
+    if profile_modules is not None:
+        for ip in hosts:
+            for module_name, config in profile_modules.items():
+                if not isinstance(config, dict):
                     continue
-
-                # Для режима diff: фильтруем ключи
-                if mode == "diff" and diff_data is not None:
-                    diff_key = f"module_{module_name}"
-                    ip_diff = diff_data.get(ip, {})
-                    resource_diff = ip_diff.get(diff_key, {})
-                    if not resource_diff:
-                        logger.debug("diff: нет изменений для %s/%s, пропускаем", ip, module_name)
-                        continue
-                    kv_args = _kv_args_for_diff(config, resource_diff)
-                else:
-                    kv_args = _config_to_kv_args(config)
-
+                kv_args = _config_to_kv_args(config)
                 task = _task_module(ip, module_name, kv_args, cmd_client_path, cmd_port, cmd_timeout)
                 if task:
                     all_tasks.append(task)
+    else:
+        for ip in hosts:
+            ip_dir = store_root / ip
+            if not ip_dir.is_dir():
+                logger.warning("Директория для ноды %s не найдена: %s", ip, ip_dir)
+                continue
 
-        # --- Домены ---
-        domains_path = ip_dir / "domains"
-        if domains_path.is_dir():
-            for domain_dir in sorted(domains_path.iterdir()):
-                if not domain_dir.is_dir():
-                    continue
-                domain_name = domain_dir.name
+            # --- Модули ---
+            modules_path = ip_dir / "modules"
+            if modules_path.is_dir():
+                for yml_file in sorted(modules_path.glob("*.yml")):
+                    module_name = yml_file.stem
+                    config = _load_yaml(yml_file)
+                    if not config:
+                        continue
 
-                # Читаем _config.yml домена
-                domain_config_file = domain_dir / "_config.yml"
-                if domain_config_file.exists():
-                    config = _load_yaml(domain_config_file)
-                    if config:
-                        if mode == "diff" and diff_data is not None:
-                            diff_key = f"domain_{domain_name}"
-                            ip_diff = diff_data.get(ip, {})
-                            resource_diff = ip_diff.get(diff_key, {})
-                            if not resource_diff:
-                                logger.debug(
-                                    "diff: нет изменений для %s/domain/%s, пропускаем",
-                                    ip, domain_name,
-                                )
-                                config = None
-                            else:
-                                kv_args = _kv_args_for_diff(config, resource_diff)
-                        else:
-                            kv_args = _config_to_kv_args(config)
+                    # Для режима diff: фильтруем ключи
+                    if mode == "diff" and diff_data is not None:
+                        diff_key = f"module_{module_name}"
+                        ip_diff = diff_data.get(ip, {})
+                        resource_diff = ip_diff.get(diff_key, {})
+                        if not resource_diff:
+                            logger.debug("diff: нет изменений для %s/%s, пропускаем", ip, module_name)
+                            continue
+                        kv_args = _kv_args_for_diff(config, resource_diff)
+                    else:
+                        kv_args = _config_to_kv_args(config)
 
-                        if config is not None:
-                            task = _task_domain(
-                                ip, domain_name, kv_args, cmd_client_path, cmd_port, cmd_timeout
-                            )
-                            if task:
-                                all_tasks.append(task)
+                    task = _task_module(ip, module_name, kv_args, cmd_client_path, cmd_port, cmd_timeout)
+                    if task:
+                        all_tasks.append(task)
 
-                # --- Объекты домена (опционально) ---
-                if include_objects:
-                    objects_path = domain_dir / "objects"
-                    if objects_path.is_dir():
-                        for obj_file in sorted(objects_path.glob("*.yml")):
-                            obj_name = obj_file.stem
-                            obj_config = _load_yaml(obj_file)
-                            if not obj_config:
-                                continue
+            # --- Домены ---
+            domains_path = ip_dir / "domains"
+            if domains_path.is_dir():
+                for domain_dir in sorted(domains_path.iterdir()):
+                    if not domain_dir.is_dir():
+                        continue
+                    domain_name = domain_dir.name
 
+                    # Читаем _config.yml домена
+                    domain_config_file = domain_dir / "_config.yml"
+                    if domain_config_file.exists():
+                        config = _load_yaml(domain_config_file)
+                        if config:
                             if mode == "diff" and diff_data is not None:
-                                diff_key = f"object_{obj_name}@{domain_name}"
+                                diff_key = f"domain_{domain_name}"
                                 ip_diff = diff_data.get(ip, {})
                                 resource_diff = ip_diff.get(diff_key, {})
                                 if not resource_diff:
-                                    continue
-                                kv_args = _kv_args_for_diff(obj_config, resource_diff)
+                                    logger.debug(
+                                        "diff: нет изменений для %s/domain/%s, пропускаем",
+                                        ip, domain_name,
+                                    )
+                                    config = None
+                                else:
+                                    kv_args = _kv_args_for_diff(config, resource_diff)
                             else:
-                                kv_args = _config_to_kv_args(obj_config)
+                                kv_args = _config_to_kv_args(config)
 
-                            task = _task_object(
-                                ip, domain_name, obj_name, kv_args,
-                                cmd_client_path, cmd_port, cmd_timeout,
-                            )
-                            if task:
-                                all_tasks.append(task)
+                            if config is not None:
+                                task = _task_domain(
+                                    ip, domain_name, kv_args, cmd_client_path, cmd_port, cmd_timeout
+                                )
+                                if task:
+                                    all_tasks.append(task)
+
+                    # --- Объекты домена (опционально) ---
+                    if include_objects:
+                        objects_path = domain_dir / "objects"
+                        if objects_path.is_dir():
+                            for obj_file in sorted(objects_path.glob("*.yml")):
+                                obj_name = obj_file.stem
+                                obj_config = _load_yaml(obj_file)
+                                if not obj_config:
+                                    continue
+
+                                if mode == "diff" and diff_data is not None:
+                                    diff_key = f"object_{obj_name}@{domain_name}"
+                                    ip_diff = diff_data.get(ip, {})
+                                    resource_diff = ip_diff.get(diff_key, {})
+                                    if not resource_diff:
+                                        continue
+                                    kv_args = _kv_args_for_diff(obj_config, resource_diff)
+                                else:
+                                    kv_args = _config_to_kv_args(obj_config)
+
+                                task = _task_object(
+                                    ip, domain_name, obj_name, kv_args,
+                                    cmd_client_path, cmd_port, cmd_timeout,
+                                )
+                                if task:
+                                    all_tasks.append(task)
 
     # Если задач нет — добавляем заглушку, чтобы плейбук был валидным
     if not all_tasks:

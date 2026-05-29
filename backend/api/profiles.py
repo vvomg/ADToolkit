@@ -20,14 +20,17 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from ..infrastructure.cmd_client import CMDClient, CMDError
 from ..services import profile_store as ps
+from ..services.playbook_generator import generate_apply_playbook, save_generated_playbook
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +42,6 @@ router = APIRouter(prefix="/api/config/profiles", tags=["profiles"])
 # ---------------------------------------------------------------------------
 
 async def _cmd(ip: str, port: int, user: str, password: str) -> CMDClient:
-    from fastapi import HTTPException
     client = CMDClient(host=ip, port=port)
     try:
         await client.connect()
@@ -95,6 +97,11 @@ class PullAllStreamRequest(BaseModel):
     cmd_user: str
     cmd_password: str
     port: int = 106
+
+
+class ToPlaybookRequest(BaseModel):
+    hosts: list[str]
+    mode: str = "full"
 
 
 # ---------------------------------------------------------------------------
@@ -516,3 +523,28 @@ async def apply_stream(slug: str, req: ApplyRequest) -> StreamingResponse:
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@router.post("/{slug}/to-playbook")
+def profile_to_playbook(slug: str, body: ToPlaybookRequest) -> dict[str, Any]:
+    """Generate a playbook YAML from a profile's module configuration."""
+    if not body.hosts:
+        raise HTTPException(status_code=400, detail="At least one host required")
+
+    if body.mode not in ("full", "diff"):
+        raise HTTPException(status_code=400, detail="mode must be 'full' or 'diff'")
+
+    config_store_dir = os.environ.get("CONFIG_STORE_DIR", "/opt/ivamail-config-store")
+
+    # get_profile raises HTTPException(404) directly if not found — let it propagate
+    profile = ps.get_profile(slug)
+
+    content = generate_apply_playbook(
+        hosts=body.hosts,
+        config_store_dir=config_store_dir,
+        mode=body.mode,
+        profile_modules=profile.modules,
+    )
+    path = save_generated_playbook(content, config_store_dir, f"profile-{slug}")
+
+    return {"playbook_name": Path(path).name, "path": path}
