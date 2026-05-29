@@ -5,6 +5,7 @@ import { Deploy }           from "@/pages/Deploy";
 import { JobMonitor }       from "@/pages/JobMonitor";
 import { ConfigManagement } from "@/pages/ConfigManagement";
 import { History }          from "@/pages/History";
+import { Search }           from "@/pages/Search";
 import { About }            from "@/pages/About";
 
 export default function App() {
@@ -18,6 +19,7 @@ export default function App() {
           <Route path="/monitor" element={<JobMonitor />} />
           <Route path="/config"  element={<ConfigManagement />} />
           <Route path="/history" element={<History />} />
+          <Route path="/search"  element={<Search />} />
           <Route path="/about"   element={<About />} />
         </Routes>
       </main>

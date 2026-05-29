@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, Rocket, Monitor, Settings2, ScrollText, Info } from "lucide-react";
+import { LayoutDashboard, Rocket, Monitor, Settings2, ScrollText, Info, Search } from "lucide-react";
 import { useJobStore } from "@/stores/jobStore";
 
 const navItems = [
@@ -8,6 +8,7 @@ const navItems = [
   { to: "/monitor", icon: Monitor,         label: "Job Monitor", badge: true },
   { to: "/config",  icon: Settings2,       label: "Config Mgmt" },
   { to: "/history", icon: ScrollText,      label: "History"     },
+  { to: "/search",  icon: Search,          label: "Search"      },
 ];
 
 export function Sidebar() {

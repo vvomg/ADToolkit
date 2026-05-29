@@ -206,6 +206,27 @@ class MonitorNode(Base):
         return f"<MonitorNode id={self.id} ip={self.ip} type={self.node_type}>"
 
 
+class InventoryScan(Base):
+    """Запись об инвентаризации почтовых ящиков IVA Mail."""
+    __tablename__ = "inventory_scans"
+
+    id                 = Column(String(36), primary_key=True, default=_gen_uuid)
+    started_at         = Column(DateTime, default=datetime.utcnow, nullable=False)
+    finished_at        = Column(DateTime, nullable=True)
+    status             = Column(String(20), nullable=False, default="running")  # running|success|failed
+    config_snapshot    = Column(JSON, nullable=True)
+    output_json_path   = Column(Text, nullable=True)
+    output_html_path   = Column(Text, nullable=True)
+    error_message      = Column(Text, nullable=True)
+    log_output         = Column(Text, nullable=True)
+    domains_count      = Column(Integer, nullable=True)
+    accounts_count     = Column(Integer, nullable=True)
+    folders_count      = Column(Integer, nullable=True)
+
+    def __repr__(self) -> str:
+        return f"<InventoryScan id={self.id} status={self.status}>"
+
+
 def _normalize_sync_sqlite_url(database_url: str) -> str:
     """Полный sync-URL для create_engine (без sqlite+aiosqlite)."""
     u = database_url.strip()
