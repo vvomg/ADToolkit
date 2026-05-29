@@ -15,3 +15,8 @@ deploy-logs/*.log
 
 *.rar
 *.7z
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+.beads-credential-key
+.beads/proxieddb/

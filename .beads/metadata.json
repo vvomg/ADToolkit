@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "ADToolKit",
+  "project_id": "58c671c2-70ce-465e-a8f8-29d2895b960c"
+}
