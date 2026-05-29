@@ -302,7 +302,32 @@
           },
           "unit": "short"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "NET"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "SIZE"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 9,
@@ -314,6 +339,14 @@
       "options": {
         "tooltip": {
           "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
         }
       },
       "targets": [
@@ -322,9 +355,90 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "ivamail_static_var{host=~\"$host\"}",
-          "legendFormat": "{{host}} oid={{oid}}",
+          "expr": "ivamail_auth_success_total{host=~\"\"}",
+          "legendFormat": "\u0410\u0443\u0442\u0435\u043d\u0442 \u0443\u0441\u043f\u0435\u0448\u043d\u043e / {{host}}",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "ivamail_auth_failed_total{host=~\"\"}",
+          "legendFormat": "\u0410\u0443\u0442\u0435\u043d\u0442 \u043e\u0448\u0438\u0431\u043e\u043a / {{host}}",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "ivamail_sessions_active{host=~\"\"}",
+          "legendFormat": "\u0421\u0435\u0441\u0441\u0438\u0438 \u0430\u043a\u0442\u0438\u0432\u043d\u044b\u0435 / {{host}}",
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "ivamail_sessions_closed_total{host=~\"\"}",
+          "legendFormat": "\u0421\u0435\u0441\u0441\u0438\u0438 \u0437\u0430\u043a\u0440\u044b\u0442\u044b\u0445 / {{host}}",
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "ivamail_delivery_incoming_messages_total{host=~\"\"}",
+          "legendFormat": "\u0412\u0445\u043e\u0434\u044f\u0449\u0438\u0445 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0439 / {{host}}",
+          "refId": "E"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "ivamail_queue_outgoing_messages_total{host=~\"\"}",
+          "legendFormat": "\u041e\u0447\u0435\u0440\u0435\u0434\u044c \u0438\u0441\u0445\u043e\u0434\u044f\u0449\u0438\u0445 / {{host}}",
+          "refId": "F"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "ivamail_network_tcp_sent_bytes_total{host=~\"\"}",
+          "legendFormat": "TCP \u043e\u0442\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u043e / {{host}}",
+          "refId": "NET"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "ivamail_network_tcp_received_bytes_total{host=~\"\"}",
+          "legendFormat": "TCP \u043f\u043e\u043b\u0443\u0447\u0435\u043d\u043e / {{host}}",
+          "refId": "NET2"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "ivamail_dsn_failed_total{host=~\"\"}",
+          "legendFormat": "DSN \u043e\u0448\u0438\u0431\u043e\u043a / {{host}}",
+          "refId": "G"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "ivamail_queue_recipients_total{host=~\"\"}",
+          "legendFormat": "\u041f\u043e\u043b\u0443\u0447\u0430\u0442\u0435\u043b\u0435\u0439 \u0432 \u043e\u0447\u0435\u0440\u0435\u0434\u0438 / {{host}}",
+          "refId": "H"
         }
       ],
       "title": "IVA Mail Static Vars (GetStaticVar)",
