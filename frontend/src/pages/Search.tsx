@@ -66,9 +66,10 @@ const DEFAULT_CONFIG: InventoryConfig = {
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 const STATUS_STYLE: Record<string, string> = {
-  success: "text-green bg-green/10",
-  failed:  "text-red   bg-red/10",
-  running: "text-blue  bg-blue/10 animate-pulse",
+  success: "text-green  bg-green/10",
+  partial: "text-yellow bg-yellow/10",
+  failed:  "text-red    bg-red/10",
+  running: "text-blue   bg-blue/10 animate-pulse",
 };
 
 function formatDate(iso: string): string {
@@ -558,7 +559,7 @@ export function Search() {
                       {formatDuration(s.started_at, s.finished_at)}
                     </td>
                     <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
-                      {s.status === "success" && (
+                      {(s.status === "success" || s.status === "partial") && (
                         <div className="flex items-center gap-3">
                           <a
                             href={`/api/inventory/${s.scan_id}/download/json`}

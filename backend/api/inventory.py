@@ -138,10 +138,21 @@ async def _run_scan(scan_id: str, config: InventoryConfig) -> None:
             scan.finished_at = datetime.utcnow()
             scan.log_output = "\n".join(log_lines[-500:])
 
-            if returncode == 0 and Path(output_json).exists():
-                scan.status = "success"
+            json_exists = Path(output_json).exists()
+            html_exists = Path(output_html).exists()
+
+            if json_exists:
+                # Скрипт возвращает exit 1 при частичных ошибках (напр. IMAP-таймауты),
+                # но JSON-файл при этом записывается. Считаем успехом, если файл есть.
+                scan.status = "success" if returncode == 0 else "partial"
                 scan.output_json_path = output_json
-                scan.output_html_path = output_html if Path(output_html).exists() else None
+                scan.output_html_path = output_html if html_exists else None
+                if returncode != 0:
+                    # Достаём количество ошибок из лога
+                    import re as _re
+                    m = _re.search(r"errors:\s*(\d+)", "\n".join(log_lines))
+                    err_count = m.group(1) if m else "?"
+                    scan.error_message = f"Завершено с {err_count} ошибками (exit {returncode})"
                 # Подсчёт статистики из JSON-результата
                 try:
                     with open(output_json, encoding="utf-8") as jf:
@@ -153,7 +164,7 @@ async def _run_scan(scan_id: str, config: InventoryConfig) -> None:
                     pass
             else:
                 scan.status = "failed"
-                scan.error_message = f"Exit code {returncode}"
+                scan.error_message = f"Exit code {returncode} — выходной файл не создан"
 
         except Exception as exc:
             logger.exception("Scan %s failed with exception: %s", scan_id, exc)
