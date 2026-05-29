@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   RefreshCw, AlertTriangle, Play, Server, Database, Mail, Settings2,
-  ChevronDown, Download, ExternalLink,
+  ChevronDown, Download, FileText, X, ExternalLink,
 } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -160,6 +160,10 @@ export function Search() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Report viewer
+  const [reportScan, setReportScan] = useState<ScanListItem | null>(null);
+  const reportRef = useRef<HTMLDivElement>(null);
+
   // Section visibility
   const [openConn, setOpenConn] = useState(true);
   const [openScope, setOpenScope] = useState(true);
@@ -261,6 +265,13 @@ export function Search() {
       setError(e instanceof Error ? e.message : String(e));
       setScanning(false);
     }
+  };
+
+  // Open HTML report inline
+  const openReport = (scan: ScanListItem) => {
+    setReportScan(prev => prev?.scan_id === scan.scan_id ? null : scan);
+    // Scroll into view after state update
+    setTimeout(() => reportRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
   };
 
   // Row click: restore config from snapshot
@@ -553,15 +564,32 @@ export function Search() {
                             href={`/api/inventory/${s.scan_id}/download/json`}
                             download
                             className="flex items-center gap-1 text-xs text-overlay0 hover:text-blue transition-colors"
+                            title="Скачать JSON"
                           >
                             <Download size={11} />JSON
                           </a>
                           <button
-                            onClick={() => window.open(`/api/inventory/${s.scan_id}/download/html`, "_blank")}
-                            className="flex items-center gap-1 text-xs text-overlay0 hover:text-blue transition-colors"
+                            onClick={() => openReport(s)}
+                            title="Открыть HTML-отчёт"
+                            className={[
+                              "flex items-center gap-1 text-xs transition-colors",
+                              reportScan?.scan_id === s.scan_id
+                                ? "text-blue"
+                                : "text-overlay0 hover:text-blue",
+                            ].join(" ")}
                           >
-                            <ExternalLink size={11} />HTML
+                            <FileText size={11} />
+                            {reportScan?.scan_id === s.scan_id ? "Скрыть" : "HTML"}
                           </button>
+                          <a
+                            href={`/api/inventory/${s.scan_id}/download/html`}
+                            target="_blank"
+                            rel="noreferrer"
+                            title="Открыть в новой вкладке"
+                            className="flex items-center text-overlay0 hover:text-overlay1 transition-colors"
+                          >
+                            <ExternalLink size={11} />
+                          </a>
                         </div>
                       )}
                     </td>
@@ -572,6 +600,67 @@ export function Search() {
           </div>
         )}
       </div>
+
+      {/* ── Inline HTML Report Viewer ── */}
+      {reportScan && (
+        <div ref={reportRef} className="space-y-0">
+          {/* Header bar */}
+          <div className="flex items-center justify-between bg-surface0 border border-surface1 rounded-t-xl px-4 py-2.5">
+            <div className="flex items-center gap-3">
+              <FileText size={14} className="text-blue" />
+              <span className="text-sm font-medium text-text">Отчёт инвентаризации</span>
+              <span className="font-mono text-xs text-overlay0">{reportScan.scan_id.slice(0, 8)}…</span>
+              {reportScan.started_at && (
+                <span className="text-xs text-overlay0">{formatDate(reportScan.started_at)}</span>
+              )}
+              {reportScan.domains_count != null && (
+                <span className="text-xs text-subtext">
+                  {reportScan.domains_count} доменов · {reportScan.accounts_count} аккаунтов · {reportScan.folders_count} папок
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <a
+                href={`/api/inventory/${reportScan.scan_id}/download/html`}
+                target="_blank"
+                rel="noreferrer"
+                title="Открыть в новой вкладке"
+                className="flex items-center gap-1 text-xs text-overlay0 hover:text-blue transition-colors px-2 py-1 rounded hover:bg-surface1"
+              >
+                <ExternalLink size={12} />
+                <span>Новая вкладка</span>
+              </a>
+              <a
+                href={`/api/inventory/${reportScan.scan_id}/download/json`}
+                download
+                title="Скачать JSON"
+                className="flex items-center gap-1 text-xs text-overlay0 hover:text-blue transition-colors px-2 py-1 rounded hover:bg-surface1"
+              >
+                <Download size={12} />
+                <span>JSON</span>
+              </a>
+              <button
+                onClick={() => setReportScan(null)}
+                title="Закрыть отчёт"
+                className="flex items-center gap-1 text-xs text-overlay0 hover:text-red transition-colors px-2 py-1 rounded hover:bg-surface1"
+              >
+                <X size={12} />
+                <span>Закрыть</span>
+              </button>
+            </div>
+          </div>
+
+          {/* iframe */}
+          <iframe
+            key={reportScan.scan_id}
+            src={`/api/inventory/${reportScan.scan_id}/download/html`}
+            title={`Отчёт ${reportScan.scan_id}`}
+            className="w-full border border-t-0 border-surface1 rounded-b-xl bg-white"
+            style={{ height: "calc(100vh - 200px)", minHeight: "500px" }}
+            sandbox="allow-scripts allow-same-origin"
+          />
+        </div>
+      )}
     </div>
   );
 }
