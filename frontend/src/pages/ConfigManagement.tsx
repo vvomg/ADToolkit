@@ -1656,7 +1656,7 @@ function HistoryTab({ node, creds }: { node: MonitorNodeInfo; creds: CmdCreds })
 
 // ── Tab: Profiles ─────────────────────────────────────────────────────────────
 
-function ProfilesTab({ nodes, creds }: { nodes: MonitorNodeInfo[]; creds: CmdCreds }) {
+function ProfilesTab({ nodes, creds, onSwitchTab }: { nodes: MonitorNodeInfo[]; creds: CmdCreds; onSwitchTab: (t: Tab) => void }) {
   // Sub-view: library (two-panel) or matrix
   const [view,       setView]       = useState<"library" | "matrix">("library");
   // Matrix sub-mode: A = presence list, B = values (current behaviour)
@@ -1731,6 +1731,11 @@ function ProfilesTab({ nodes, creds }: { nodes: MonitorNodeInfo[]; creds: CmdCre
 
   // Search filter
   const [search, setSearch]               = useState("");
+
+  // Profile → Playbook dialog
+  const [toPlaybookSlug,    setToPlaybookSlug]    = useState<string | null>(null);
+  const [toPlaybookHosts,   setToPlaybookHosts]   = useState<string[]>([]);
+  const [toPlaybookLoading, setToPlaybookLoading] = useState(false);
 
   // Matrix: popover state
   const [matrixPopover, setMatrixPopover] = useState<{ slug: string; mod: string } | null>(null);
@@ -2082,6 +2087,25 @@ function ProfilesTab({ nodes, creds }: { nodes: MonitorNodeInfo[]; creds: CmdCre
     }
   }
 
+  async function profileToPlaybook(slug: string) {
+    if (toPlaybookHosts.length === 0) return;
+    setToPlaybookLoading(true);
+    try {
+      const r = await fetch(`/api/config/profiles/${slug}/to-playbook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hosts: toPlaybookHosts, mode: 'full' }),
+      });
+      if (r.ok) {
+        setToPlaybookSlug(null);
+        setToPlaybookHosts([]);
+        onSwitchTab('playbooks');
+      }
+    } finally {
+      setToPlaybookLoading(false);
+    }
+  }
+
   // ── Derived ───────────────────────────────────────────────────────────────
 
   const backendNodes  = nodes.filter((n) => n.node_type === "ivamail_backend");
@@ -2255,35 +2279,49 @@ function ProfilesTab({ nodes, creds }: { nodes: MonitorNodeInfo[]; creds: CmdCre
               {filteredProfiles.map((p) => {
                 const isActive = selected?.slug === p.slug;
                 return (
-                  <button
+                  <div
                     key={p.slug}
-                    onClick={() => openProfile(p.slug)}
-                    className={`w-full text-left px-4 py-3 transition-colors border-b border-surface1/30 ${
+                    className={`border-b border-surface1/30 group ${
                       isActive ? "bg-blue/8 border-l-2 border-l-blue" : "hover:bg-surface1/30"
                     }`}
                   >
-                    <div className="flex items-center justify-between mb-0.5">
-                      <span className={`text-xs font-medium truncate ${isActive ? "text-blue" : "text-text"}`}>
-                        {p.name}
-                      </span>
-                      <span className="text-[10px] text-overlay0 shrink-0 ml-1 font-mono">
-                        {p.module_names.length} мод.
-                      </span>
-                    </div>
-                    {p.notes && (
-                      <p className="text-[10px] text-overlay0 truncate leading-tight">{p.notes}</p>
-                    )}
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      {p.module_names.slice(0, 4).map((m) => (
-                        <span key={m} className="text-[9px] bg-surface1 text-overlay0 px-1 py-0 rounded font-mono">
-                          {m}
+                    <button
+                      onClick={() => openProfile(p.slug)}
+                      className="w-full text-left px-4 py-3 transition-colors"
+                    >
+                      <div className="flex items-center justify-between mb-0.5">
+                        <span className={`text-xs font-medium truncate ${isActive ? "text-blue" : "text-text"}`}>
+                          {p.name}
                         </span>
-                      ))}
-                      {p.module_names.length > 4 && (
-                        <span className="text-[9px] text-overlay0">+{p.module_names.length - 4}</span>
+                        <span className="text-[10px] text-overlay0 shrink-0 ml-1 font-mono">
+                          {p.module_names.length} мод.
+                        </span>
+                      </div>
+                      {p.notes && (
+                        <p className="text-[10px] text-overlay0 truncate leading-tight">{p.notes}</p>
                       )}
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {p.module_names.slice(0, 4).map((m) => (
+                          <span key={m} className="text-[9px] bg-surface1 text-overlay0 px-1 py-0 rounded font-mono">
+                            {m}
+                          </span>
+                        ))}
+                        {p.module_names.length > 4 && (
+                          <span className="text-[9px] text-overlay0">+{p.module_names.length - 4}</span>
+                        )}
+                      </div>
+                    </button>
+                    {/* Profile → Playbook action */}
+                    <div className="px-4 pb-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setToPlaybookSlug(p.slug); setToPlaybookHosts([]); }}
+                        className="flex items-center gap-1 px-2 py-0.5 text-[10px] text-teal hover:bg-teal/10 rounded transition-colors"
+                        title="Сгенерировать плейбук из профиля"
+                      >
+                        → Playbook
+                      </button>
                     </div>
-                  </button>
+                  </div>
                 );
               })}
             </div>
@@ -3162,8 +3200,71 @@ function ProfilesTab({ nodes, creds }: { nodes: MonitorNodeInfo[]; creds: CmdCre
           )}
         </div>
       )}
+
+      {/* Profile → Playbook modal */}
+      {toPlaybookSlug && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-surface0 border border-surface1 rounded-xl p-6 w-96 space-y-4 shadow-2xl">
+            <h3 className="text-base font-semibold text-text">
+              Сгенерировать плейбук из профиля
+            </h3>
+            <p className="text-xs text-subtext">Выберите целевые ноды:</p>
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {nodes.length === 0 ? (
+                <p className="text-xs text-overlay0 italic">
+                  Нет зарегистрированных нод. Добавьте ноды в Job Monitor.
+                </p>
+              ) : (
+                nodes.map((n) => (
+                  <label key={n.ip} className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={toPlaybookHosts.includes(n.ip)}
+                      onChange={e => setToPlaybookHosts(prev =>
+                        e.target.checked ? [...prev, n.ip] : prev.filter(h => h !== n.ip)
+                      )}
+                      className="w-3.5 h-3.5 accent-blue"
+                    />
+                    <span className="font-mono text-xs text-text">{n.ip}</span>
+                    {(n.display_name || n.hostname) && (
+                      <span className="text-xs text-overlay0">{n.display_name || n.hostname}</span>
+                    )}
+                  </label>
+                ))
+              )}
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => profileToPlaybook(toPlaybookSlug)}
+                disabled={toPlaybookLoading || toPlaybookHosts.length === 0}
+                className="flex-1 py-2 bg-blue/90 hover:bg-blue text-base text-sm rounded-lg transition-colors disabled:opacity-50"
+              >
+                {toPlaybookLoading ? 'Генерация...' : 'Сгенерировать'}
+              </button>
+              <button
+                onClick={() => { setToPlaybookSlug(null); setToPlaybookHosts([]); }}
+                className="px-4 py-2 bg-surface1 text-subtext text-sm rounded-lg hover:bg-surface2 transition-colors"
+              >
+                Отмена
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
+}
+
+// ── Playbook meta (generated files) ──────────────────────────────────────────
+
+interface PlaybookMeta {
+  name: string;
+  path: string;
+  created_at: string;
+  size_bytes: number;
+  hosts: string[];
+  mode: string;
+  prefix: string;
 }
 
 // ── Tab: Playbooks ────────────────────────────────────────────────────────────
@@ -3197,6 +3298,107 @@ function PlaybooksTab({ node, creds }: { node: MonitorNodeInfo; creds: CmdCreds 
   const termRef                             = useRef<HTMLPreElement>(null);
   const abortRef                            = useRef<AbortController | null>(null);
 
+  // ── Generated playbooks list ────────────────────────────────────────────
+  const [playbooks,        setPlaybooks]        = useState<PlaybookMeta[]>([]);
+  const [pbLoading,        setPbLoading]        = useState(false);
+  const [editPbName,       setEditPbName]       = useState<string | null>(null);
+  const [editPbContent,    setEditPbContent]    = useState('');
+  const [pbSaving,         setPbSaving]         = useState(false);
+  const [pbRunName,        setPbRunName]        = useState<string | null>(null);
+  const [pbRunLines,       setPbRunLines]       = useState<string[]>([]);
+  const [pbRunning,        setPbRunning]        = useState(false);
+  const [pbCmdUser,        setPbCmdUser]        = useState(creds.user);
+  const [pbCmdPass,        setPbCmdPass]        = useState(creds.pass);
+  const [toProfileLoading, setToProfileLoading] = useState<string | null>(null);
+
+  const loadPlaybooks = async () => {
+    setPbLoading(true);
+    try {
+      const r = await fetch('/api/config/playbooks/');
+      if (r.ok) setPlaybooks(await r.json());
+    } catch { /* ignore */ }
+    finally { setPbLoading(false); }
+  };
+
+  const loadPlaybookContent = async (name: string) => {
+    setEditPbName(name);
+    const r = await fetch(`/api/config/playbooks/${encodeURIComponent(name)}`);
+    const d = await r.json() as { content?: string };
+    setEditPbContent(d.content ?? '');
+  };
+
+  const savePlaybookEdit = async () => {
+    if (!editPbName) return;
+    setPbSaving(true);
+    try {
+      const r = await fetch(`/api/config/playbooks/${encodeURIComponent(editPbName)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: editPbContent }),
+      });
+      if (r.ok) {
+        setEditPbName(null);
+      }
+    } catch { /* ignore — user can retry */ }
+    finally { setPbSaving(false); }
+  };
+
+  const deletePlaybook = async (name: string) => {
+    if (!confirm(`Удалить плейбук «${name}»?`)) return;
+    const r = await fetch(`/api/config/playbooks/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    if (r.ok) {
+      setPlaybooks(prev => prev.filter(p => p.name !== name));
+    }
+  };
+
+  const runPlaybook = async (name: string) => {
+    setPbRunName(name);
+    setPbRunLines([]);
+    setPbRunning(true);
+    try {
+      const r = await fetch(`/api/config/playbooks/${encodeURIComponent(name)}/run/stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cmd_user: pbCmdUser, cmd_password: pbCmdPass }),
+      });
+      const reader = r.body?.getReader();
+      const decoder = new TextDecoder();
+      if (!reader) return;
+      let buf = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const chunks = buf.split('\n');
+        buf = chunks.pop() ?? '';
+        for (const chunk of chunks) {
+          if (chunk.startsWith('data: ')) {
+            const msg = chunk.slice(6);
+            if (msg === '[DONE]') { setPbRunning(false); return; }
+            if (msg) setPbRunLines(prev => [...prev.slice(-200), msg]);
+          }
+        }
+      }
+    } catch (e) {
+      setPbRunLines(prev => [...prev, `ERROR: ${e}`]);
+    } finally {
+      setPbRunning(false);
+    }
+  };
+
+  const playbookToProfile = async (name: string) => {
+    setToProfileLoading(name);
+    try {
+      await fetch(`/api/config/playbooks/${encodeURIComponent(name)}/to-profile`, { method: 'POST' });
+    } finally {
+      setToProfileLoading(null);
+    }
+  };
+
+  useEffect(() => {
+    loadPlaybooks();
+  }, []);
+
   useEffect(() => {
     if (termRef.current) termRef.current.scrollTop = termRef.current.scrollHeight;
   }, [lines]);
@@ -3218,6 +3420,10 @@ function PlaybooksTab({ node, creds }: { node: MonitorNodeInfo; creds: CmdCreds 
     const onDone = (ok: boolean) => {
       setRunning(null);
       setExitOk(ok);
+      // Refresh generated playbooks list after dump completes
+      if (key === "dump") {
+        loadPlaybooks();
+      }
     };
 
     const hosts = [node.ip];
@@ -3306,6 +3512,164 @@ function PlaybooksTab({ node, creds }: { node: MonitorNodeInfo; creds: CmdCreds 
           </pre>
         </div>
       )}
+
+      {/* ── Generated playbooks list ────────────────────────────────────────── */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-text">Сгенерированные плейбуки</h2>
+            <p className="text-xs text-overlay0 mt-0.5">Ansible-плейбуки, созданные операциями Config Dump / Apply</p>
+          </div>
+          <button
+            onClick={loadPlaybooks}
+            disabled={pbLoading}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-surface0 hover:bg-surface1 border border-surface1 text-subtext text-sm rounded-lg transition-colors disabled:opacity-50"
+          >
+            <RefreshCw size={13} className={pbLoading ? 'animate-spin' : ''} />
+            Обновить
+          </button>
+        </div>
+
+        {pbLoading && (
+          <div className="bg-surface0 border border-surface1 rounded-xl p-8 text-center">
+            <p className="text-subtext text-sm">Загрузка...</p>
+          </div>
+        )}
+        {!pbLoading && playbooks.length === 0 && (
+          <div className="bg-surface0 border border-surface1 rounded-xl p-8 text-center">
+            <p className="text-subtext text-sm">Плейбуков нет</p>
+            <p className="text-overlay0 text-xs mt-1">Запустите Config Dump — плейбуки появятся здесь</p>
+          </div>
+        )}
+        {playbooks.length > 0 && (
+          <div className="bg-surface0 border border-surface1 rounded-xl overflow-hidden">
+            {playbooks.map((pb, i) => (
+              <div key={pb.name} className={i < playbooks.length - 1 ? 'border-b border-surface1/50' : ''}>
+                {/* Row */}
+                <div className="flex items-center justify-between px-4 py-3 hover:bg-surface1/30 transition-colors">
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <span className="font-mono text-xs text-blue truncate max-w-xs" title={pb.name}>{pb.name}</span>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {pb.hosts.map(h => (
+                        <span key={h} className="px-1.5 py-0.5 bg-blue/10 text-blue text-[10px] rounded font-mono">{h}</span>
+                      ))}
+                      <span className="px-1.5 py-0.5 bg-surface2 text-overlay0 text-[10px] rounded font-mono">{pb.mode}</span>
+                    </div>
+                    <span className="text-xs text-overlay0 whitespace-nowrap shrink-0">
+                      {new Date(pb.created_at).toLocaleString('ru')}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 ml-4 shrink-0">
+                    <button
+                      onClick={() => { setPbRunName(pb.name); setPbRunLines([]); }}
+                      className="flex items-center gap-1 px-2 py-1 text-xs text-green hover:bg-green/10 rounded transition-colors"
+                      title="Запустить"
+                    >
+                      ▶ Run
+                    </button>
+                    <button
+                      onClick={() => loadPlaybookContent(pb.name)}
+                      className="flex items-center gap-1 px-2 py-1 text-xs text-blue hover:bg-blue/10 rounded transition-colors"
+                      title="Редактировать"
+                    >
+                      ✎ Edit
+                    </button>
+                    <button
+                      onClick={() => playbookToProfile(pb.name)}
+                      disabled={toProfileLoading === pb.name}
+                      className="flex items-center gap-1 px-2 py-1 text-xs text-mauve hover:bg-mauve/10 rounded transition-colors disabled:opacity-50"
+                      title="Конвертировать в профиль"
+                    >
+                      {toProfileLoading === pb.name ? '...' : '→ Profile'}
+                    </button>
+                    <button
+                      onClick={() => deletePlaybook(pb.name)}
+                      className="flex items-center gap-1 px-2 py-1 text-xs text-red hover:bg-red/10 rounded transition-colors"
+                      title="Удалить"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+
+                {/* YAML Editor (inline, shown when this pb is being edited) */}
+                {editPbName === pb.name && (
+                  <div className="px-4 pb-4 border-t border-surface1/50 bg-mantle space-y-3 pt-3">
+                    <textarea
+                      value={editPbContent}
+                      onChange={e => setEditPbContent(e.target.value)}
+                      rows={20}
+                      className="w-full bg-crust border border-surface1 rounded-lg px-3 py-2 text-xs font-mono text-text focus:border-blue outline-none resize-y"
+                      spellCheck={false}
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={savePlaybookEdit}
+                        disabled={pbSaving}
+                        className="px-3 py-1.5 bg-blue text-base text-sm rounded-lg hover:bg-blue/80 transition-colors disabled:opacity-50"
+                      >
+                        {pbSaving ? 'Сохранение...' : 'Сохранить'}
+                      </button>
+                      <button
+                        onClick={() => setEditPbName(null)}
+                        className="px-3 py-1.5 bg-surface1 text-subtext text-sm rounded-lg hover:bg-surface2 transition-colors"
+                      >
+                        Отмена
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Run panel (inline, shown when this pb is selected for run) */}
+                {pbRunName === pb.name && (
+                  <div className="px-4 pb-4 border-t border-surface1/50 bg-mantle space-y-3 pt-3">
+                    <div className="flex items-end gap-3 flex-wrap">
+                      <div className="space-y-1">
+                        <label className="text-xs text-subtext block">CMD User</label>
+                        <input
+                          type="text" value={pbCmdUser} onChange={e => setPbCmdUser(e.target.value)}
+                          placeholder="admin"
+                          className="bg-surface1 border border-surface2 rounded-lg px-3 py-1.5 text-sm text-text focus:border-blue outline-none w-32"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs text-subtext block">Password</label>
+                        <input
+                          type="password" value={pbCmdPass} onChange={e => setPbCmdPass(e.target.value)}
+                          placeholder="••••••••"
+                          className="bg-surface1 border border-surface2 rounded-lg px-3 py-1.5 text-sm text-text focus:border-blue outline-none w-32"
+                        />
+                      </div>
+                      <button
+                        onClick={() => runPlaybook(pb.name)}
+                        disabled={pbRunning}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-green/90 hover:bg-green text-base text-sm rounded-lg transition-colors disabled:opacity-50"
+                      >
+                        {pbRunning ? <><Loader2 size={11} className="animate-spin" /> Running...</> : '▶ Запустить'}
+                      </button>
+                      <button
+                        onClick={() => { setPbRunName(null); setPbRunLines([]); }}
+                        className="px-3 py-1.5 bg-surface1 text-subtext text-sm rounded-lg hover:bg-surface2 transition-colors"
+                      >
+                        Закрыть
+                      </button>
+                    </div>
+                    {pbRunLines.length > 0 && (
+                      <div className="bg-crust rounded-lg p-3 max-h-64 overflow-y-auto">
+                        {pbRunLines.map((line, idx) => (
+                          <div key={idx} className={`font-mono text-xs ${line.startsWith('ERROR') ? 'text-red' : 'text-subtext'}`}>
+                            {line}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -3725,7 +4089,7 @@ export function ConfigManagement() {
               transition={{ duration: 0.15 }}
               className="h-full flex flex-col"
             >
-              <ProfilesTab nodes={nodes} creds={creds} />
+              <ProfilesTab nodes={nodes} creds={creds} onSwitchTab={setTab} />
             </motion.div>
           </AnimatePresence>
         ) : !node ? (
