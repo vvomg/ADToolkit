@@ -589,7 +589,7 @@ export function Search() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-surface1 text-subtext text-xs">
-                  {["ID", "Запущен", "Статус", "Домены", "Аккаунты", "Папки", "Длительность", ""].map(h => (
+                  {["ID", "Хост", "Запущен", "Статус", "Домены", "Аккаунты", "Папки", "Длительность", ""].map(h => (
                     <th key={h} className="text-left px-4 py-3 font-medium">{h}</th>
                   ))}
                 </tr>
@@ -608,6 +608,11 @@ export function Search() {
                     <td className="px-4 py-3">
                       <span className="font-mono text-xs text-overlay0" title={s.scan_id}>
                         {s.scan_id.slice(0, 8)}…
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="font-mono text-xs text-blue whitespace-nowrap">
+                        {(s.config_snapshot as Record<string, unknown> | null)?.host as string ?? "—"}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-xs text-subtext whitespace-nowrap">
