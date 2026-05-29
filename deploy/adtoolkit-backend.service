@@ -28,6 +28,9 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=adtoolkit-backend
 
+# File descriptor limit — inventory scanner opens many IMAP connections in parallel
+LimitNOFILE=65536
+
 # Security hardening
 NoNewPrivileges=yes
 PrivateTmp=yes
